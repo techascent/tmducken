@@ -1,6 +1,6 @@
 .cpcache
 .clj-kondo
 .lsp
-duckdb
+binaries
 target
 classes

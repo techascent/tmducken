@@ -1,9 +1,9 @@
 #!/bin/bash
 
-if [ ! -e duckdb ]; then
+if [ ! -e binaries ]; then
     wget https://github.com/duckdb/duckdb/releases/download/v0.3.1/libduckdb-linux-amd64.zip
-    unzip libduckdb-linux-amd64.zip -d duckdb
+    unzip libduckdb-linux-amd64.zip -d binaries
     rm libduckdb-linux-amd64.zip
 fi
 
-export DUCKDB_HOME="$(pwd)/duckdb"
+export DUCKDB_HOME="$(pwd)/binaries"
