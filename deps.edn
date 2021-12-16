@@ -1,0 +1,44 @@
+{:paths ["src"]
+ :deps {techascent/tech.ml.dataset {:mvn/version "6.041"}
+        net.java.dev.jna/jna {:mvn/version "5.9.0"}}
+ :aliases
+ {:depstar
+  {:replace-deps {com.github.seancorfield/depstar {:mvn/version "2.0.193"}}
+   :ns-default hf.depstar
+   :exec-fn hf.depstar/jar
+   :exec-args {:group-id "com.cnuernber"
+               :artifact-id "tmducken"
+               :version "1.000-alpha-1"
+               :sync-pom true
+               :jar "target/tmducken.jar"}}
+  ;;deploy to clojars
+  :deploy
+  {:replace-deps {slipset/deps-deploy {:mvn/version "0.1.5"}}
+   :exec-fn deps-deploy.deps-deploy/deploy
+   :exec-args {:installer :remote
+               :sign-releases? true
+               :artifact "target/tmducken.jar"}}
+
+  :install
+  {:replace-deps {slipset/deps-deploy {:mvn/version "0.1.5"}}
+   :exec-fn deps-deploy.deps-deploy/deploy
+   :exec-args {:installer :local
+               :artifact "target/tmducken.jar"}}
+
+  ;;Writes docs into docs/index.html
+  ;;clj -X:codox
+  :codox
+  {:extra-deps {codox-theme-rdash/codox-theme-rdash {:mvn/version "0.1.2"}
+                com.cnuernber/codox {:mvn/version "1.000"}
+                cider/cider-nrepl {:mvn/version "0.26.0"}}
+   :extra-paths ["test" "resources"]
+   :exec-fn codox.main/-main
+   :exec-args {:arg-paths [[:aliases :depstar :exec-args]]
+               :description "DuckDB bindings to dtype-next and tech.ml.dataset"
+               :metadata {:doc/format :markdown}
+               :themes [:rdash]
+               :language :clojurescript
+               :source-paths ["src"]
+               :output-path "docs"
+               :source-uri "https://github.com/cnuernber/tmducken/blob/master/{filepath}#L{line}"
+               :namespaces []}}}}
