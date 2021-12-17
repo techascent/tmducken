@@ -25,7 +25,7 @@ What this library provides beyond the JDBC pathway is very fast transfer from th
 duckdb query result, which is stored already in column-major form, to a dataset.
 The JDBC driver forces you to go row by row and essentially use the
 sequence-of-maps->dataset pathway.  This library is also another example of how to
-use dtype-next's ffi system to bind to a C library.
+use [dtype-next's ffi system to bind to a C library](src/tmducken/duckdb/ffi.clj).
 
 
 One thing to note is that because duckdb already supplies the query result columns to the
