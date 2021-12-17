@@ -1,13 +1,11 @@
 # tech.ml.dataset Integration with DuckDB
 
-
-* [![Clojars Project](https://clojars.org/com.cnuernber/tmducken/latest-version.svg)](https://clojars.org/com.cnuernber/tmducken)
-
-* [API Documentation](https://cnuernber.github.io/tmducken/)
-
+[![Clojars Project](https://clojars.org/com.cnuernber/tmducken/latest-version.svg)](https://clojars.org/com.cnuernber/tmducken)
 
 Simple, fast integration of tmd with duckdb.  For the name, see 
 [turducken](https://en.wikipedia.org/wiki/Turducken).
+
+* [API Documentation](https://cnuernber.github.io/tmducken/)
 
 
 ## Usage
