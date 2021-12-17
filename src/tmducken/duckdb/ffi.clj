@@ -1,5 +1,6 @@
 (ns tmducken.duckdb.ffi
   (:require [tech.v3.datatype.ffi :as dt-ffi]
+            [tech.v3.datatype.ffi.size-t :as ffi-size-t]
             [tech.v3.datatype.struct :as dt-struct]
             [clojure.tools.logging :as log]
             [tech.v3.resource :as resource])
@@ -27,7 +28,6 @@
 (def ^{:tag 'long} DUCKDB_TYPE_HUGEINT 16)
 (def ^{:tag 'long} DUCKDB_TYPE_VARCHAR 17)
 (def ^{:tag 'long} DUCKDB_TYPE_BLOB 18)
-
 
 (def ^{:tag 'long} DuckDBSuccess 0)
 (def ^{:tag 'long} DuckDBError 1)
@@ -258,135 +258,108 @@ all memory associated with the appender.
     ;; Query Execution
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-    DUCKDB_API duckdb_state duckdb_query(duckdb_connection connection, const char *query, duckdb_result *out_result)
-    DUCKDB_API void duckdb_destroy_result(duckdb_result *result)
-    DUCKDB_API const char *duckdb_column_name(duckdb_result *result, idx_t col)
-    DUCKDB_API idx_t duckdb_column_count(duckdb_result *result)
-    DUCKDB_API idx_t duckdb_row_count(duckdb_result *result)
-    DUCKDB_API idx_t duckdb_rows_changed(duckdb_result *result)
-    DUCKDB_API void *duckdb_column_data(duckdb_result *result, idx_t col)
-    DUCKDB_API char *duckdb_result_error(duckdb_result *result)
-
+    :duckdb_query {:rettype :int32
+                   :argtypes [[connection :pointer]
+                              [query :string]
+                              [out_result :pointer]]}
+    :duckdb_destroy_result {:rettype :void
+                            :argtypes [[result :pointer]]}
 
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
     ;; Prepared Statements
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    DUCKDB_API duckdb_state duckdb_prepare(duckdb_connection connection, const char *query,
-                                                             duckdb_prepared_statement *out_prepared_statement)
-    DUCKDB_API void duckdb_destroy_prepare(duckdb_prepared_statement *prepared_statement)
-    DUCKDB_API const char *duckdb_prepare_error(duckdb_prepared_statement prepared_statement)
-    DUCKDB_API idx_t duckdb_nparams(duckdb_prepared_statement prepared_statement)
-    DUCKDB_API duckdb_type duckdb_param_type(duckdb_prepared_statement prepared_statement, idx_t param_idx)
-    DUCKDB_API duckdb_state duckdb_bind_boolean(duckdb_prepared_statement prepared_statement, idx_t param_idx, bool val)
-    DUCKDB_API duckdb_state duckdb_bind_int8(duckdb_prepared_statement prepared_statement, idx_t param_idx, int8_t val)
-    DUCKDB_API duckdb_state duckdb_bind_int16(duckdb_prepared_statement prepared_statement, idx_t param_idx, int16_t val)
-    DUCKDB_API duckdb_state duckdb_bind_int32(duckdb_prepared_statement prepared_statement, idx_t param_idx, int32_t val)
-    DUCKDB_API duckdb_state duckdb_bind_int64(duckdb_prepared_statement prepared_statement, idx_t param_idx, int64_t val)
-    DUCKDB_API duckdb_state duckdb_bind_hugeint(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-                                                                          duckdb_hugeint val)
-    DUCKDB_API duckdb_state duckdb_bind_uint8(duckdb_prepared_statement prepared_statement, idx_t param_idx, uint8_t val)
-    DUCKDB_API duckdb_state duckdb_bind_uint16(duckdb_prepared_statement prepared_statement, idx_t param_idx, uint16_t val)
-    DUCKDB_API duckdb_state duckdb_bind_uint32(duckdb_prepared_statement prepared_statement, idx_t param_idx, uint32_t val)
-    DUCKDB_API duckdb_state duckdb_bind_uint64(duckdb_prepared_statement prepared_statement, idx_t param_idx, uint64_t val)
-    DUCKDB_API duckdb_state duckdb_bind_float(duckdb_prepared_statement prepared_statement, idx_t param_idx, float val)
-    DUCKDB_API duckdb_state duckdb_bind_double(duckdb_prepared_statement prepared_statement, idx_t param_idx, double val)
-    DUCKDB_API duckdb_state duckdb_bind_date(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-                                                                       duckdb_date val)
-    DUCKDB_API duckdb_state duckdb_bind_time(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-                                                                       duckdb_time val)
-    DUCKDB_API duckdb_state duckdb_bind_timestamp(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-                                                                            duckdb_timestamp val)
-    DUCKDB_API duckdb_state duckdb_bind_interval(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-                                                                           duckdb_interval val)
-    DUCKDB_API duckdb_state duckdb_bind_varchar(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-                                                                          const char *val)
-    DUCKDB_API duckdb_state duckdb_bind_varchar_length(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-                                                                                 const char *val, idx_t length)
-    DUCKDB_API duckdb_state duckdb_bind_blob(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-                                                                       const void *data, idx_t length)
-    DUCKDB_API duckdb_state duckdb_bind_null(duckdb_prepared_statement prepared_statement, idx_t param_idx)
-    DUCKDB_API duckdb_state duckdb_execute_prepared(duckdb_prepared_statement prepared_statement,
-                                                                              duckdb_result *out_result)
+    ;; DUCKDB_API duckdb_state duckdb_prepare(duckdb_connection connection, const char *query,
+    ;;                                                          duckdb_prepared_statement *out_prepared_statement)
+    ;; DUCKDB_API void duckdb_destroy_prepare(duckdb_prepared_statement *prepared_statement)
+    ;; DUCKDB_API const char *duckdb_prepare_error(duckdb_prepared_statement prepared_statement)
+    ;; DUCKDB_API idx_t duckdb_nparams(duckdb_prepared_statement prepared_statement)
+    ;; DUCKDB_API duckdb_type duckdb_param_type(duckdb_prepared_statement prepared_statement, idx_t param_idx)
+    ;; DUCKDB_API duckdb_state duckdb_bind_boolean(duckdb_prepared_statement prepared_statement, idx_t param_idx, bool val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_int8(duckdb_prepared_statement prepared_statement, idx_t param_idx, int8_t val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_int16(duckdb_prepared_statement prepared_statement, idx_t param_idx, int16_t val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_int32(duckdb_prepared_statement prepared_statement, idx_t param_idx, int32_t val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_int64(duckdb_prepared_statement prepared_statement, idx_t param_idx, int64_t val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_hugeint(duckdb_prepared_statement prepared_statement, idx_t param_idx,
+    ;;                                                                       duckdb_hugeint val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_uint8(duckdb_prepared_statement prepared_statement, idx_t param_idx, uint8_t val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_uint16(duckdb_prepared_statement prepared_statement, idx_t param_idx, uint16_t val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_uint32(duckdb_prepared_statement prepared_statement, idx_t param_idx, uint32_t val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_uint64(duckdb_prepared_statement prepared_statement, idx_t param_idx, uint64_t val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_float(duckdb_prepared_statement prepared_statement, idx_t param_idx, float val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_double(duckdb_prepared_statement prepared_statement, idx_t param_idx, double val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_date(duckdb_prepared_statement prepared_statement, idx_t param_idx,
+    ;;                                                                    duckdb_date val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_time(duckdb_prepared_statement prepared_statement, idx_t param_idx,
+    ;;                                                                    duckdb_time val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_timestamp(duckdb_prepared_statement prepared_statement, idx_t param_idx,
+    ;;                                                                         duckdb_timestamp val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_interval(duckdb_prepared_statement prepared_statement, idx_t param_idx,
+    ;;                                                                        duckdb_interval val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_varchar(duckdb_prepared_statement prepared_statement, idx_t param_idx,
+    ;;                                                                       const char *val)
+    ;; DUCKDB_API duckdb_state duckdb_bind_varchar_length(duckdb_prepared_statement prepared_statement, idx_t param_idx,
+    ;;                                                                              const char *val, idx_t length)
+    ;; DUCKDB_API duckdb_state duckdb_bind_blob(duckdb_prepared_statement prepared_statement, idx_t param_idx,
+    ;;                                                                    const void *data, idx_t length)
+    ;; DUCKDB_API duckdb_state duckdb_bind_null(duckdb_prepared_statement prepared_statement, idx_t param_idx)
+    ;; DUCKDB_API duckdb_state duckdb_execute_prepared(duckdb_prepared_statement prepared_statement,
+    ;;                                                                           duckdb_result *out_result)
     }
 
   nil
   nil)
 
+;; typedef struct {
+;; 	void *data;
+;; 	bool *nullmask;
+;; 	duckdb_type type;
+;; 	char *name;
+;; 	void *internal_data;
+;; } duckdb_column;
 
-(defn initialize!
-  ([{:keys [duckdb-home in-process?]}]
-   (let [duckdb-home (or duckdb-home (System/getenv "DUCKDB_HOME"))
-         libpath (when-not in-process?
-                   (if-not (empty? duckdb-home)
-                     (str (Paths/get duckdb-home
-                                     (into-array String [(System/mapLibraryName "duckdb")])))
-                     "duckdb"))]
-     (if libpath
-       (log/infof "Attempting to load duckdb from \"%s\"" libpath)
-       (log/infof "Attempting to load in-process duckdb" libpath))
-     (dt-ffi/library-singleton-set! lib libpath)))
-  ([] (initialize! nil)))
+;; These definitions are delayed so same jar will work on both 32-bit and 64-bit systems.
+(def ptr-dtype* (delay (ffi-size-t/ptr-t-type)))
 
 
-(defn get-config-options
+(def blob-def* (delay (dt-struct/define-datatype! :duckdb-blob
+                        [{:name :data
+                          :datatype @ptr-dtype*}
+                         {:name :size
+                          :datatype :uint64}])))
+
+
+(def column-def* (delay (dt-struct/define-datatype! :duckdb-column
+                          [{:name :data
+                            :datatype @ptr-dtype*}
+                           {:name :nullmask
+                            :datatype @ptr-dtype*}
+                           ;;duckdb-type
+                           {:name :type
+                            :datatype :int32}
+                           {:name :name
+                            :datatype @ptr-dtype*}
+                           {:name :internal_data
+                            :datatype @ptr-dtype*}])))
+
+
+(def result-def* (delay
+                   (dt-struct/define-datatype! :duckdb-result
+                     [{:name :column-count
+                       :datatype :uint64}
+                      {:name :row-count
+                       :datatype :uint64}
+                      {:name :rows-changed
+                       :datatype :uint64}
+                      {:name :columns
+                       :datatype @ptr-dtype*}
+                      {:name :error-message
+                       :datatype @ptr-dtype*}
+                      {:name :internal-data
+                       :datatype @ptr-dtype*}])))
+
+
+(defn define-datatypes!
   []
-  (resource/stack-resource-context
-   (->> (range (duckdb_config_count))
-        (mapv (fn [^long idx]
-                (let [msg-ptr (dt-ffi/make-ptr :pointer 0)
-                      desc-ptr (dt-ffi/make-ptr :pointer 0)]
-                  (duckdb_get_config_flag idx msg-ptr desc-ptr)
-                  {:name (dt-ffi/c->string (Pointer. (msg-ptr 0)))
-                   :desc (dt-ffi/c->string (Pointer. (desc-ptr 0)))}))))))
-
-
-(defn open-db
-  ([^String path config-options]
-   (resource/stack-resource-context
-    (let [path (or path "")
-          config-ptr (when-not (empty? config-options)
-                       (let [config-ptr (dt-ffi/make-ptr :pointer 0)
-                             _ (duckdb_create_config config-ptr)
-                             cfg (Pointer. (config-ptr 0))]
-                         (doseq [[k v] config-options]
-                           (duckdb_set_config cfg (str k) (str v)))
-                         config-ptr))
-          config (when config-ptr
-                   (Pointer. (config-ptr 0)))
-          db-ptr (dt-ffi/make-ptr :pointer 0)
-          err (dt-ffi/make-ptr :pointer 0)
-          open-retval (duckdb_open_ext path db-ptr config err)]
-      (when config-ptr
-        (duckdb_destroy_config config-ptr))
-      (when-not (= open-retval DuckDBSuccess)
-        (let [err-ptr (Pointer. (err 0))
-              err-str (dt-ffi/c->string err-ptr)]
-          (duckdb_free err-ptr)
-          (throw (Exception. (format "Error opening database: %s" err-str)))))
-      (Pointer. (db-ptr 0)))))
-  ([^String path]
-   (open-db path nil))
-  ([]
-   (open-db "")))
-
-
-(defn close-db
-  [^Pointer db]
-  (resource/stack-resource-context
-   (let [db-ptr (dt-ffi/make-ptr :pointer (.address db))]
-     (duckdb_close db-ptr))))
-
-
-(defn connect
-  [^Pointer db]
-  (resource/stack-resource-context
-   (let [ctx-ptr (dt-ffi/make-ptr :pointer 0)]
-     (duckdb_connect db ctx-ptr)
-     (Pointer. (ctx-ptr 0)))))
-
-
-(defn disconnect
-  [^Pointer conn]
-  (resource/stack-resource-context
-   (let [conn-ptr (dt-ffi/make-ptr :pointer (.address conn))]
-     (duckdb_disconnect conn-ptr))))
+  @blob-def*
+  @column-def*
+  @result-def*)
