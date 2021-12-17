@@ -3,6 +3,8 @@
 
 * [![Clojars Project](https://clojars.org/com.cnuernber/tmducken/latest-version.svg)](https://clojars.org/com.cnuernber/tmducken)
 
+* [API Documentation](https://cnuernber.github.io/tmducken/)
+
 
 Simple, fast integration of tmd with duckdb.  For the name, see 
 [turducken](https://en.wikipedia.org/wiki/Turducken).
