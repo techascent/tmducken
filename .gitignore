@@ -5,3 +5,5 @@
 binaries
 target
 classes
+pom.xml
+*.asc

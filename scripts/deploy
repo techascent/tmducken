@@ -1,0 +1,10 @@
+#!/bin/bash
+
+source scripts/enable-duckdb
+
+set -e
+
+clj -M:test
+clj -X:codox
+clj -X:depstar
+clj -X:deploy

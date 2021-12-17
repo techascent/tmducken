@@ -1,14 +1,66 @@
 (ns tmducken.duckdb
+  "DuckDB C-level bindings for tech.ml.dataset.
+
+  Current datatype support:
+
+  * boolean, all numeric types int8->int64, uint8->uint64, float32, float64.
+  * string
+  * LocalDate, Instant column types.
+
+
+  Example:
+
+  ```clojure
+
+user> (require '[tech.v3.dataset :as ds])
+nil
+user> (require '[tmducken.duckdb :as duckdb])
+nil
+user> (duckdb/initialize!)
+10:04:14.814 [nREPL-session-635e9bc8-2923-442b-9fad-da547210617b] INFO tmducken.duckdb - Attempting to load duckdb from \"/home/chrisn/dev/cnuernber/tmducken/binaries/libduckdb.so\"
+true
+user> (def stocks
+        (-> (ds/->dataset \"https://github.com/techascent/tech.ml.dataset/raw/master/test/data/stocks.csv\" {:key-fn keyword})
+            (vary-meta assoc :name :stocks)))
+#'user/stocks
+user> (def db (duckdb/open-db))
+#'user/db
+user> (def conn (duckdb/connect db))
+#'user/conn
+user> (duckdb/create-table! conn stocks)
+\"stocks\"
+user> (duckdb/append-dataset! conn stocks)
+nil
+user> (ds/head (duckdb/execute-query! conn \"select * from stocks\"))
+10:05:28.356 [tech.resource.gc ref thread] INFO tech.v3.resource.gc - Reference thread starting
+_unnamed [5 3]:
+
+| symbol |       date | price |
+|--------|------------|------:|
+|   MSFT | 2000-01-01 | 39.81 |
+|   MSFT | 2000-02-01 | 36.35 |
+|   MSFT | 2000-03-01 | 43.22 |
+|   MSFT | 2000-04-01 | 28.37 |
+|   MSFT | 2000-05-01 | 25.45 |
+```"
   (:require [tmducken.duckdb.ffi :as duckdb-ffi]
             [tech.v3.datatype.ffi :as dt-ffi]
             [tech.v3.datatype.struct :as dt-struct]
             [tech.v3.datatype.native-buffer :as native-buffer]
+            [tech.v3.datatype.casting :as casting]
+            [tech.v3.datatype :as dt]
+            [tech.v3.datatype.datetime :as dt-datetime]
+            [tech.v3.datatype.packing :as packing]
+            [tech.v3.datatype.bitmap :as bitmap]
+            [tech.v3.datatype.unary-pred :as unary-pred]
             [tech.v3.resource :as resource]
             [tech.v3.dataset.sql.impl :as sql-impl]
             [tech.v3.dataset :as ds]
             [clojure.tools.logging :as log])
   (:import [java.nio.file Paths]
-           [tech.v3.datatype.ffi Pointer]))
+           [java.time LocalDate]
+           [tech.v3.datatype.ffi Pointer]
+           [org.roaringbitmap RoaringBitmap]))
 
 
 (defonce ^:private initialize* (atom false))
@@ -20,17 +72,23 @@
 
 (defn initialize!
   "Initialize the duckdb ffi system.  This must be called first should be called only once.
-  It is safe, however, to call this multiple times."
-  ([{:keys [duckdb-home in-process?]}]
+  It is safe, however, to call this multiple times.
+
+  Options:
+
+  * `:duckdb-home` - Directory in which to find the duckdb shared library.  Users can pass
+  this in.  If not passed in, then the environment variable `DUCKDB_HOME` is checked.  If
+  neither is passed in then the library will be searched in the normal system library
+  paths."
+  ([{:keys [duckdb-home]}]
    (swap! initialize*
           (fn [is-init?]
             (when-not is-init?
               (let [duckdb-home (or duckdb-home (System/getenv "DUCKDB_HOME"))
-                    libpath (when-not in-process?
-                              (if-not (empty? duckdb-home)
-                                (str (Paths/get duckdb-home
-                                                (into-array String [(System/mapLibraryName "duckdb")])))
-                                "duckdb"))]
+                    libpath (if-not (empty? duckdb-home)
+                              (str (Paths/get duckdb-home
+                                              (into-array String [(System/mapLibraryName "duckdb")])))
+                              "duckdb")]
                 (if libpath
                   (log/infof "Attempting to load duckdb from \"%s\"" libpath)
                   (log/infof "Attempting to load in-process duckdb" libpath))
@@ -150,10 +208,19 @@ tmducken.duckdb> (get-config-options)
        (resource/track query-res {:track-type (get options :resource-type :auto)
                                   :dispose-fn destructor!}))))
   ([conn sql]
-   (run-query conn sql nil)))
+   (run-query! conn sql nil)))
 
 
 (defn create-table!
+  "Create an sql table based off of the column datatypes of the dataset.  Note that users
+  can also call [[execute-query!]] with their own sql create-table string.  Note that the
+  fastest way to get data into the system is [[append-dataset!]].
+
+  Options:
+
+  * `:table-name` - Name of the table to create.  If not supplied the dataset name will
+     be used.
+  * `:primary-key` - sequence of column names to be used as the primary key."
   ([conn dataset options]
    (let [table-name (sql-impl/->str (or (:table-name options)
                                         (sql-impl/dataset->table-name dataset)))
@@ -167,26 +234,218 @@ tmducken.duckdb> (get-config-options)
          sql (sql-impl/create-sql dataset table-name primary-key)]
      (resource/stack-resource-context
       (run-query! conn sql))
-     :ok))
+     table-name))
   ([conn dataset]
    (create-table! conn dataset nil)))
 
 
 (defn append-dataset!
-  "Append this dataset using the higher-performance append api of duckdb.  This is recommended
+  "Append this dataset using the higher performance append api of duckdb.  This is recommended
   as opposed to using sql statements or prepared statements."
   ([conn dataset options]
-   )
+   (resource/stack-resource-context
+    (let [table-name (sql-impl/->str (or (:table-name options)
+                                         (sql-impl/dataset->table-name dataset)))
+          app-ptr (dt-ffi/make-ptr :pointer 0)
+          app-status (duckdb-ffi/duckdb_appender_create conn "" table-name app-ptr)
+          _ (resource/track app-ptr {:track-type :stack
+                                     :dispose-fn #(duckdb-ffi/duckdb_appender_destroy app-ptr)})
+          appender (Pointer. (app-ptr 0))
+          check-error (fn [status]
+                        (when-not (= status duckdb-ffi/DuckDBSuccess)
+                          (let [err (duckdb-ffi/duckdb_appender_error appender)]
+                            (throw (Exception. err)))))
+          _ (check-error app-status)
+          n-rows (ds/row-count dataset)
+          n-cols (ds/column-count dataset)
+          colvec (ds/columns dataset)
+          dtypes (mapv (comp packing/unpack-datatype dt/elemwise-datatype) colvec)
+          missing (mapv ds/missing colvec)
+          rdr-vec (mapv dt/->reader colvec)]
+      (dotimes [row n-rows]
+        (dotimes [col n-cols]
+          (let [coldata (rdr-vec col)]
+            (->
+             (if (.contains ^RoaringBitmap (missing col) row)
+               (duckdb-ffi/duckdb_append_null appender)
+               (case (dtypes col)
+                 :boolean (duckdb-ffi/duckdb_append_bool appender (unchecked-byte (if (coldata row) 1 0)))
+                 :int8  (duckdb-ffi/duckdb_append_int8 appender (unchecked-byte (coldata row)))
+                 :uint8 (duckdb-ffi/duckdb_append_uint8 appender (unchecked-byte (coldata row)))
+                 :int16 (duckdb-ffi/duckdb_append_int16 appender (unchecked-short (coldata row)))
+                 :uint16 (duckdb-ffi/duckdb_append_uint16 appender (unchecked-short (coldata row)))
+                 :int32 (duckdb-ffi/duckdb_append_int32 appender (unchecked-int (coldata row)))
+                 :uint32 (duckdb-ffi/duckdb_append_uint32 appender (unchecked-int (coldata row)))
+                 :int64 (duckdb-ffi/duckdb_append_int64 appender (unchecked-long (coldata row)))
+                 :uint64 (duckdb-ffi/duckdb_append_uint64 appender (unchecked-long (coldata row)))
+                 :float32 (duckdb-ffi/duckdb_append_float appender (float (coldata row)))
+                 :float64 (duckdb-ffi/duckdb_append_double appender (double (coldata row)))
+                 :local-date (duckdb-ffi/duckdb_append_date appender (-> (coldata row)
+                                                                         (dt-datetime/local-date->days-since-epoch)))
+                 :instant (duckdb-ffi/duckdb_append_timestamp appender (-> (coldata row)
+                                                                           (dt-datetime/instant->microseconds-since-epoch)))
+                 :string (duckdb-ffi/duckdb_append_varchar appender (str (coldata row)))))
+             (check-error))))
+        (check-error (duckdb-ffi/duckdb_appender_end_row appender))))))
   ([conn dataset] (append-dataset! conn dataset nil)))
+
+
+(defn- nullmask->missing
+  ^RoaringBitmap [^long n-rows ^long nmask]
+  (if (== 0 nmask)
+    (bitmap/->bitmap)
+    (-> (native-buffer/wrap-address nmask n-rows nil)
+        (unary-pred/bool-reader->indexes)
+        (bitmap/->bitmap))))
+
+
+(defn- coldata->buffer
+  [^long n-rows ^long duckdb-type ^long data-ptr]
+  (case (get duckdb-ffi/duckdb-type-map duckdb-type)
+    :DUCKDB_TYPE_BOOLEAN
+    (-> (native-buffer/wrap-address data-ptr n-rows nil)
+        (dt/elemwise-cast :boolean))
+
+    :DUCKDB_TYPE_TINYINT
+    (native-buffer/wrap-address data-ptr n-rows nil)
+
+    :DUCKDB_TYPE_SMALLINT
+    (-> (native-buffer/wrap-address data-ptr (* 2 n-rows) nil)
+        (native-buffer/set-native-datatype :int16))
+
+    :DUCKDB_TYPE_INTEGER
+    (-> (native-buffer/wrap-address data-ptr (* 4 n-rows) nil)
+        (native-buffer/set-native-datatype :int32))
+
+    :DUCKDB_TYPE_BIGINT
+    (-> (native-buffer/wrap-address data-ptr (* 8 n-rows) nil)
+        (native-buffer/set-native-datatype :int64))
+
+    :DUCKDB_TYPE_UTINYINT
+    (-> (native-buffer/wrap-address data-ptr n-rows nil)
+        (native-buffer/set-native-datatype :uint8))
+
+    :DUCKDB_TYPE_USMALLINT
+    (-> (native-buffer/wrap-address data-ptr (* 2 n-rows) nil)
+        (native-buffer/set-native-datatype :uint16))
+
+    :DUCKDB_TYPE_UINTEGER
+    (-> (native-buffer/wrap-address data-ptr (* 4 n-rows) nil)
+        (native-buffer/set-native-datatype :uint32))
+
+    :DUCKDB_TYPE_UBIGINT
+    (-> (native-buffer/wrap-address data-ptr (* 8 n-rows) nil)
+        (native-buffer/set-native-datatype :uint64))
+
+    :DUCKDB_TYPE_FLOAT
+    (-> (native-buffer/wrap-address data-ptr (* 4 n-rows) nil)
+        (native-buffer/set-native-datatype :float32))
+
+    :DUCKDB_TYPE_DOUBLE
+    (-> (native-buffer/wrap-address data-ptr (* 8 n-rows) nil)
+        (native-buffer/set-native-datatype :float64))
+
+    :DUCKDB_TYPE_DATE
+    (-> (native-buffer/wrap-address data-ptr (* 4 n-rows) nil)
+        (native-buffer/set-native-datatype :packed-local-date))
+
+    :DUCKDB_TYPE_TIMESTAMP
+    (-> (native-buffer/wrap-address data-ptr (* 8 n-rows) nil)
+        (native-buffer/set-native-datatype :packed-instant))
+
+    :DUCKDB_TYPE_VARCHAR
+    (let [ptr-type @duckdb-ffi/ptr-dtype*
+          ptr-width (casting/numeric-byte-width ptr-type)
+          ptr-buf (-> (native-buffer/wrap-address data-ptr (* ptr-width n-rows) nil)
+                      (native-buffer/set-native-datatype ptr-type))]
+      (dt/make-reader :string n-rows (dt-ffi/c->string (Pointer. (ptr-buf idx)))))))
+
+
+(defn execute-query!
+  "Execute a query returning a dataset.  Most data will be read in-place in the result
+  set which will be link via metadata to the returned dataset.  If you wish to release
+  the data immediately wrap call in `tech.v3.resource/stack-resource-context` and clone
+  the result.
+
+  Example:
+
+
+```clojure
+
+  ;; !!Recommended!! - Results copied into jvm and result-set released immediately after query
+
+tmducken.duckdb> (resource/stack-resource-context
+                  (dt/clone (execute-query! conn \"select * from stocks\")))
+_unnamed [560 3]:
+
+| symbol |       date | price |
+|--------|------------|------:|
+|   MSFT | 2000-01-01 | 39.81 |
+|   MSFT | 2000-02-01 | 36.35 |
+|   MSFT | 2000-03-01 | 43.22 |
+|   MSFT | 2000-04-01 | 28.37 |
+|   MSFT | 2000-05-01 | 25.45 |
+|   MSFT | 2000-06-01 | 32.54 |
+|   MSFT | 2000-07-01 | 28.40 |
+
+
+
+  ;; Results read in-place, result-set released as some point after dataset falls
+  ;; out of scope.  Be extremely careful with this one.
+
+tmducken.duckdb> (ds/head (execute-query! conn \"select * from stocks\"))
+_unnamed [5 3]:
+
+| symbol |       date | price |
+|--------|------------|------:|
+|   MSFT | 2000-01-01 | 39.81 |
+|   MSFT | 2000-02-01 | 36.35 |
+|   MSFT | 2000-03-01 | 43.22 |
+|   MSFT | 2000-04-01 | 28.37 |
+|   MSFT | 2000-05-01 | 25.45 |
+```"
+  ([conn sql options]
+   (let [result-set (run-query! conn sql options)
+         n-cols (long (result-set :column-count))
+         n-rows (long (result-set :row-count))
+         col-dtype-size (long (@duckdb-ffi/column-def* :datatype-size))]
+     (when-let [duck-cols
+                (when-not (or (== 0 n-cols) (== 0 n-rows))
+                  (let [nbuf
+                        (native-buffer/wrap-address
+                         (result-set :columns)
+                         (* n-cols col-dtype-size)
+                         :int8 :little-endian nil)]
+                    (map (fn [^long idx]
+                           (dt-struct/inplace-new-struct
+                            :duckdb-column
+                            (dt/sub-buffer nbuf (* idx col-dtype-size))))
+                         (range n-cols))))]
+       (->
+        (->> duck-cols
+             (map (fn [duck-col]
+                    #:tech.v3.dataset{:name (dt-ffi/c->string (Pointer. (duck-col :name)))
+                                      :missing (nullmask->missing n-rows (duck-col :nullmask))
+                                      :data (coldata->buffer n-rows (duck-col :type) (duck-col :data))
+                                      ;;skip any further scanning
+                                      :force-datatype? true}))
+             (ds/new-dataset options))
+        ;;Ensure the dataset keeps a reference to the result set so it doesn't get gc'd
+        ;;while columns still have reference to the data.
+        (vary-meta assoc :duckdb-result result-set)))))
+  ([conn sql]
+   (execute-query! conn sql nil)))
 
 
 (comment
   (def stocks
     (-> (ds/->dataset "https://github.com/techascent/tech.ml.dataset/raw/master/test/data/stocks.csv" {:key-fn keyword})
         (vary-meta assoc :name :stocks)))
-
+  (initialize!)
   (def db (open-db))
   (def conn (connect db))
 
   (create-table! conn stocks)
+  (append-dataset! conn stocks)
+  (execute-query! conn "select * from stocks")
   )

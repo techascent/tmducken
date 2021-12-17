@@ -29,6 +29,28 @@
 (def ^{:tag 'long} DUCKDB_TYPE_VARCHAR 17)
 (def ^{:tag 'long} DUCKDB_TYPE_BLOB 18)
 
+
+(def duckdb-type-map
+  {DUCKDB_TYPE_INVALID :DUCKDB_TYPE_INVALID
+   DUCKDB_TYPE_BOOLEAN :DUCKDB_TYPE_BOOLEAN
+   DUCKDB_TYPE_TINYINT :DUCKDB_TYPE_TINYINT
+   DUCKDB_TYPE_SMALLINT :DUCKDB_TYPE_SMALLINT
+   DUCKDB_TYPE_INTEGER :DUCKDB_TYPE_INTEGER
+   DUCKDB_TYPE_BIGINT :DUCKDB_TYPE_BIGINT
+   DUCKDB_TYPE_UTINYINT :DUCKDB_TYPE_UTINYINT
+   DUCKDB_TYPE_USMALLINT :DUCKDB_TYPE_USMALLINT
+   DUCKDB_TYPE_UINTEGER :DUCKDB_TYPE_UINTEGER
+   DUCKDB_TYPE_UBIGINT :DUCKDB_TYPE_UBIGINT
+   DUCKDB_TYPE_FLOAT :DUCKDB_TYPE_FLOAT
+   DUCKDB_TYPE_DOUBLE :DUCKDB_TYPE_DOUBLE
+   DUCKDB_TYPE_TIMESTAMP :DUCKDB_TYPE_TIMESTAMP
+   DUCKDB_TYPE_DATE :DUCKDB_TYPE_DATE
+   DUCKDB_TYPE_TIME :DUCKDB_TYPE_TIME
+   DUCKDB_TYPE_INTERVAL :DUCKDB_TYPE_INTERVAL
+   DUCKDB_TYPE_HUGEINT :DUCKDB_TYPE_HUGEINT
+   DUCKDB_TYPE_VARCHAR :DUCKDB_TYPE_VARCHAR
+   DUCKDB_TYPE_BLOB :DUCKDB_TYPE_BLOB})
+
 (def ^{:tag 'long} DuckDBSuccess 0)
 (def ^{:tag 'long} DuckDBError 1)
 
@@ -152,14 +174,7 @@ This can fail if either the name is invalid, or if the value provided for the op
                              :argtypes [[connection :pointer]
                                         [schema :string]
                                         [table :string]
-                                        [out_appender :pointer]]
-                             :doc "Returns the error message associated with the given appender.
-If the appender has no error message, this returns `nullptr` instead.
-
-The error message should not be freed. It will be de-allocated when `duckdb_appender_destroy` is called.
-
-* appender: The appender to get the error from.
-* returns: The error message, or `nullptr` if there is none."}
+                                        [out_appender :pointer]]}
     :duckdb_appender_error {:rettype :string
                             :argtypes [[appender :pointer]]
                             :doc "Returns the error message associated with the given appender.
