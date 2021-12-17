@@ -6,7 +6,7 @@
 [DuckDB](https://duckdb.org/) is a high performance in-process database system.  It is a 
 natural pairing for [tech.ml.dataset](https://github.com/techascent/tech.ml.dataset) which is 
 a high performance column-major in-memory dataframe system similar to pandas or R's data table.
-DuckDB provides a perhaps [cleaner pathways](https://duckdb.org/docs/data/overview) to load/save 
+DuckDB provides perhaps [cleaner pathways](https://duckdb.org/docs/data/overview) to load/save 
 parquet files as you don't need to navigate the 
 [minefield of dependencies](https://techascent.github.io/tech.ml.dataset/tech.v3.libs.parquet.html) 
 required to use parquet from Clojure.
