@@ -1,6 +1,6 @@
 {:paths ["src"]
- :deps {techascent/tech.ml.dataset {:mvn/version "6.041"}
-        techascent/tech.ml.dataset.sql {:mvn/version "6.000"}
+ :deps {techascent/tech.ml.dataset {:mvn/version "6.046"}
+        techascent/tech.ml.dataset.sql {:mvn/version "6.046-01"}
         net.java.dev.jna/jna {:mvn/version "5.9.0"}}
  :aliases
  {:depstar
@@ -9,7 +9,7 @@
    :exec-fn hf.depstar/jar
    :exec-args {:group-id "com.cnuernber"
                :artifact-id "tmducken"
-               :version "1.000-alpha-1"
+               :version "1.000-alpha-2"
                :sync-pom true
                :jar "target/tmducken.jar"}}
   :test

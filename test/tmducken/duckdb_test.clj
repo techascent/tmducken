@@ -3,7 +3,10 @@
             [tmducken.duckdb :as duckdb]
             [tech.v3.dataset :as ds]
             [tech.v3.datatype.functional :as dfn]
-            [tech.v3.datatype.datetime :as dtype-dt]))
+            [tech.v3.datatype.datetime :as dtype-dt])
+  (:import [java.util UUID]
+           [java.time LocalTime]
+           [tech.v3.dataset Text]))
 
 
 
@@ -15,33 +18,81 @@
 (def conn* (delay (duckdb/connect @db*)))
 
 
+(defn supported-datatype-ds
+  []
+  (-> (ds/->dataset {:boolean [true false true true false false true false false true]
+                     :bytes (byte-array (range 10))
+                     :shorts (short-array (range 10))
+                     :ints (int-array (range 10))
+                     :longs (long-array (range 10))
+                     :floats (float-array (range 10))
+                     :doubles (double-array (range 10))
+                     :strings (map str (range 10))
+                     ;; :text (map (comp #(Text. %) str) (range 10))
+                     ;; :uuids (repeatedly 10 #(UUID/randomUUID))
+                     :instants (repeatedly 10 dtype-dt/instant)
+                     ;;sql doesn't support dash-case
+                     :local_dates (repeatedly 10 dtype-dt/local-date)
+                     ;;some sql engines (or the jdbc api) don't support more than second
+                     ;;resolution for sql time objects
+                     :local_times (->> (repeatedly 10 dtype-dt/local-time))})
+      (vary-meta assoc
+                 :primary-key :longs
+                 :name :testtable)))
+
+
+(deftest basic-datatype-test
+  (try
+    (let [ds (supported-datatype-ds)]
+      (duckdb/create-table! @conn* ds)
+      (duckdb/append-dataset! @conn* ds)
+      (let [sql-ds (duckdb/execute-query! @conn* "select * from testtable"
+                                       {:key-fn keyword})]
+                (doseq [column (vals ds)]
+          (is (= (vec column)
+                 (vec (sql-ds (:name (meta column)))))))))
+    (finally
+      (try (duckdb/drop-table! @conn* "testtable")
+           (catch Throwable e nil)))))
+
+
 (deftest basic-stocks-test
-  (let [stocks (-> (ds/->dataset "https://github.com/techascent/tech.ml.dataset/raw/master/test/data/stocks.csv" {:key-fn keyword})
-                   (vary-meta assoc :name :stocks))
-        _ (do (duckdb/create-table! @conn* stocks)
-              (duckdb/append-dataset! @conn* stocks))
-        sql-stocks (duckdb/execute-query! @conn* "select * from stocks")]
-    (is (= (ds/row-count stocks)
-           (ds/row-count sql-stocks)))
-    (is (= (vec (stocks :symbol))
-           (vec (sql-stocks "symbol"))))
-        (is (= (vec (stocks :date))
-           (vec (sql-stocks "date"))))
-    (is (dfn/equals (stocks :price)
-                    (sql-stocks "price")))))
+  (try
+    (let [stocks (-> (ds/->dataset "https://github.com/techascent/tech.ml.dataset/raw/master/test/data/stocks.csv" {:key-fn keyword})
+                     (vary-meta assoc :name :stocks))
+          _ (do (duckdb/create-table! @conn* stocks)
+                (duckdb/append-dataset! @conn* stocks))
+          sql-stocks (duckdb/execute-query! @conn* "select * from stocks")]
+      (is (= (ds/row-count stocks)
+             (ds/row-count sql-stocks)))
+      (is (= (vec (stocks :symbol))
+             (vec (sql-stocks "symbol"))))
+      (is (= (vec (stocks :date))
+             (vec (sql-stocks "date"))))
+      (is (dfn/equals (stocks :price)
+                      (sql-stocks "price"))))
+    (finally
+      (try
+        (duckdb/drop-table! @conn* "stocks")
+        (catch Throwable e nil)))))
 
 
 (deftest missing-instant-test
-  (let [ds (-> (ds/->dataset {:a [1 2 nil 4 nil 6]
-                              :b [(dtype-dt/instant) nil nil (dtype-dt/instant) nil (dtype-dt/instant)]})
-               (vary-meta assoc :name "testdb"))
+  (try
+    (let [ds (-> (ds/->dataset {:a [1 2 nil 4 nil 6]
+                                :b [(dtype-dt/instant) nil nil (dtype-dt/instant) nil (dtype-dt/instant)]})
+                 (vary-meta assoc :name "testdb"))
 
-        _ (do (duckdb/create-table! @conn* ds)
-              (duckdb/append-dataset! @conn* ds))
-        sql-ds (duckdb/execute-query! @conn* "select * from testdb" {:key-fn keyword})]
-    (is (= (ds/missing ds)
-           (ds/missing sql-ds)))
-    (is (= (vec (ds :a))
-           (vec (sql-ds :a))))
-    (is (= (vec (ds :b))
-           (vec (sql-ds :b))))))
+          _ (do (duckdb/create-table! @conn* ds)
+                (duckdb/append-dataset! @conn* ds))
+          sql-ds (duckdb/execute-query! @conn* "select * from testdb" {:key-fn keyword})]
+      (is (= (ds/missing ds)
+             (ds/missing sql-ds)))
+      (is (= (vec (ds :a))
+             (vec (sql-ds :a))))
+      (is (= (vec (ds :b))
+             (vec (sql-ds :b)))))
+    (finally
+      (try
+        (duckdb/drop-table! @conn* "testdb")
+        (catch Throwable e nil)))))

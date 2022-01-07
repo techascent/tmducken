@@ -54,13 +54,16 @@ _unnamed [5 3]:
             [tech.v3.datatype.bitmap :as bitmap]
             [tech.v3.datatype.unary-pred :as unary-pred]
             [tech.v3.resource :as resource]
-            [tech.v3.dataset.sql.impl :as sql-impl]
             [tech.v3.dataset :as ds]
+            [tech.v3.dataset.sql :as sql]
             [clojure.tools.logging :as log])
   (:import [java.nio.file Paths]
-           [java.time LocalDate]
+           [java.time LocalDate LocalTime]
            [tech.v3.datatype.ffi Pointer]
            [org.roaringbitmap RoaringBitmap]))
+
+
+(set! *warn-on-reflection* true)
 
 
 (defonce ^:private initialize* (atom false))
@@ -222,21 +225,34 @@ tmducken.duckdb> (get-config-options)
      be used.
   * `:primary-key` - sequence of column names to be used as the primary key."
   ([conn dataset options]
-   (let [table-name (sql-impl/->str (or (:table-name options)
-                                        (sql-impl/dataset->table-name dataset)))
-         primary-key (or (:primary-key options)
-                         (:primary-key (meta dataset)))
-         primary-key (when primary-key
-                       (cond
-                         (string? primary-key) [primary-key]
-                         (seq primary-key) primary-key
-                         :else [primary-key]))
-         sql (sql-impl/create-sql dataset table-name primary-key)]
+   (let [sql (sql/create-sql "duckdb" dataset)]
      (resource/stack-resource-context
       (run-query! conn sql))
-     table-name))
+     (sql/table-name dataset options)))
   ([conn dataset]
    (create-table! conn dataset nil)))
+
+
+(sql/set-datatype-mapping! "duckdb" :boolean "bool" -7
+                           sql/generic-sql->column sql/generic-column->sql)
+(sql/set-datatype-mapping! "duckdb" :string "varchar" 12
+                           sql/generic-sql->column sql/generic-column->sql)
+
+
+(defn drop-table!
+  [conn dataset]
+  (let [ds-name (sql/table-name dataset)]
+    (resource/stack-resource-context
+     (run-query! conn (format "drop table %s" ds-name))
+     ds-name)))
+
+
+(defn- local-time->microseconds
+  ^long [^LocalTime lt]
+  (if lt
+    (-> (.toNanoOfDay lt)
+        (/ 1000))
+    0))
 
 
 (defn append-dataset!
@@ -244,17 +260,17 @@ tmducken.duckdb> (get-config-options)
   as opposed to using sql statements or prepared statements."
   ([conn dataset options]
    (resource/stack-resource-context
-    (let [table-name (sql-impl/->str (or (:table-name options)
-                                         (sql-impl/dataset->table-name dataset)))
+    (let [table-name (sql/table-name dataset options)
           app-ptr (dt-ffi/make-ptr :pointer 0)
           app-status (duckdb-ffi/duckdb_appender_create conn "" table-name app-ptr)
           _ (resource/track app-ptr {:track-type :stack
-                                     :dispose-fn #(duckdb-ffi/duckdb_appender_destroy app-ptr)})
+                                     :dispose-fn #(duckdb-ffi/duckdb_appender_destroy
+                                                   app-ptr)})
           appender (Pointer. (app-ptr 0))
           check-error (fn [status]
                         (when-not (= status duckdb-ffi/DuckDBSuccess)
                           (let [err (duckdb-ffi/duckdb_appender_error appender)]
-                            (throw (Exception. err)))))
+                            (throw (Exception. (str err))))))
           _ (check-error app-status)
           n-rows (ds/row-count dataset)
           n-cols (ds/column-count dataset)
@@ -282,6 +298,9 @@ tmducken.duckdb> (get-config-options)
                  :float64 (duckdb-ffi/duckdb_append_double appender (double (coldata row)))
                  :local-date (duckdb-ffi/duckdb_append_date appender (-> (coldata row)
                                                                          (dt-datetime/local-date->days-since-epoch)))
+                 :local-time (duckdb-ffi/duckdb_append_time appender
+                                                            (-> (coldata row)
+                                                                local-time->microseconds))
                  :instant (duckdb-ffi/duckdb_append_timestamp appender (-> (coldata row)
                                                                            (dt-datetime/instant->microseconds-since-epoch)))
                  :string (duckdb-ffi/duckdb_append_varchar appender (str (coldata row)))))
@@ -348,6 +367,10 @@ tmducken.duckdb> (get-config-options)
     :DUCKDB_TYPE_DATE
     (-> (native-buffer/wrap-address data-ptr (* 4 n-rows) nil)
         (native-buffer/set-native-datatype :packed-local-date))
+
+    :DUCKDB_TYPE_TIME
+    (-> (native-buffer/wrap-address data-ptr (* 8 n-rows) nil)
+        (native-buffer/set-native-datatype :packed-local-time))
 
     :DUCKDB_TYPE_TIMESTAMP
     (-> (native-buffer/wrap-address data-ptr (* 8 n-rows) nil)
