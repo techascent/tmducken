@@ -255,7 +255,7 @@ tmducken.duckdb> (get-config-options)
     0))
 
 
-(defn append-dataset!
+(defn insert-dataset!
   "Append this dataset using the higher performance append api of duckdb.  This is recommended
   as opposed to using sql statements or prepared statements."
   ([conn dataset options]
@@ -306,7 +306,7 @@ tmducken.duckdb> (get-config-options)
                  :string (duckdb-ffi/duckdb_append_varchar appender (str (coldata row)))))
              (check-error))))
         (check-error (duckdb-ffi/duckdb_appender_end_row appender))))))
-  ([conn dataset] (append-dataset! conn dataset nil)))
+  ([conn dataset] (insert-dataset! conn dataset nil)))
 
 
 (defn- nullmask->missing
@@ -384,7 +384,7 @@ tmducken.duckdb> (get-config-options)
       (dt/make-reader :string n-rows (dt-ffi/c->string (Pointer. (ptr-buf idx)))))))
 
 
-(defn execute-query!
+(defn sql->dataset
   "Execute a query returning a dataset.  Most data will be read in-place in the result
   set which will be link via metadata to the returned dataset.  If you wish to release
   the data immediately wrap call in `tech.v3.resource/stack-resource-context` and clone
@@ -457,7 +457,7 @@ _unnamed [5 3]:
         ;;while columns still have reference to the data.
         (vary-meta assoc :duckdb-result result-set)))))
   ([conn sql]
-   (execute-query! conn sql nil)))
+   (sql->dataset conn sql nil)))
 
 
 (comment

@@ -45,10 +45,10 @@
   (try
     (let [ds (supported-datatype-ds)]
       (duckdb/create-table! @conn* ds)
-      (duckdb/append-dataset! @conn* ds)
-      (let [sql-ds (duckdb/execute-query! @conn* "select * from testtable"
-                                       {:key-fn keyword})]
-                (doseq [column (vals ds)]
+      (duckdb/insert-dataset! @conn* ds)
+      (let [sql-ds (duckdb/sql->dataset @conn* "select * from testtable"
+                                        {:key-fn keyword})]
+        (doseq [column (vals ds)]
           (is (= (vec column)
                  (vec (sql-ds (:name (meta column)))))))))
     (finally
@@ -61,8 +61,8 @@
     (let [stocks (-> (ds/->dataset "https://github.com/techascent/tech.ml.dataset/raw/master/test/data/stocks.csv" {:key-fn keyword})
                      (vary-meta assoc :name :stocks))
           _ (do (duckdb/create-table! @conn* stocks)
-                (duckdb/append-dataset! @conn* stocks))
-          sql-stocks (duckdb/execute-query! @conn* "select * from stocks")]
+                (duckdb/insert-dataset! @conn* stocks))
+          sql-stocks (duckdb/sql->dataset @conn* "select * from stocks")]
       (is (= (ds/row-count stocks)
              (ds/row-count sql-stocks)))
       (is (= (vec (stocks :symbol))
@@ -84,8 +84,8 @@
                  (vary-meta assoc :name "testdb"))
 
           _ (do (duckdb/create-table! @conn* ds)
-                (duckdb/append-dataset! @conn* ds))
-          sql-ds (duckdb/execute-query! @conn* "select * from testdb" {:key-fn keyword})]
+                (duckdb/insert-dataset! @conn* ds))
+          sql-ds (duckdb/sql->dataset @conn* "select * from testdb" {:key-fn keyword})]
       (is (= (ds/missing ds)
              (ds/missing sql-ds)))
       (is (= (vec (ds :a))

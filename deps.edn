@@ -9,7 +9,7 @@
    :exec-fn hf.depstar/jar
    :exec-args {:group-id "com.cnuernber"
                :artifact-id "tmducken"
-               :version "1.000-alpha-2"
+               :version "1.000-alpha-3"
                :sync-pom true
                :jar "target/tmducken.jar"}}
   :test
