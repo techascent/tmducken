@@ -1,6 +1,6 @@
 {:paths ["src"]
- :deps {techascent/tech.ml.dataset {:mvn/version "6.046"}
-        techascent/tech.ml.dataset.sql {:mvn/version "6.046-01"}
+ :deps {techascent/tech.ml.dataset {:mvn/version "7.000-beta-52"}
+        techascent/tech.ml.dataset.sql {:mvn/version "7.000-beta-52"}
         net.java.dev.jna/jna {:mvn/version "5.9.0"}}
  :aliases
  {:depstar

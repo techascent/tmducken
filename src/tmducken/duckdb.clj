@@ -87,7 +87,9 @@ _unnamed [5 3]:
    (swap! initialize*
           (fn [is-init?]
             (when-not is-init?
-              (let [duckdb-home (or duckdb-home (System/getenv "DUCKDB_HOME"))
+              (let [duckdb-home (or duckdb-home
+                                    (System/getenv "DUCKDB_HOME")
+                                    "./binaries")
                     libpath (if-not (empty? duckdb-home)
                               (str (Paths/get duckdb-home
                                               (into-array String [(System/mapLibraryName "duckdb")])))
@@ -395,7 +397,7 @@ tmducken.duckdb> (get-config-options)
 
 ```clojure
 
-  ;; !!Recommended!! - Results copied into jvm and result-set released immediately after query
+  ;; !!Recommended!! - Results copied into jvm and duckdb-result released immediately after query
 
 tmducken.duckdb> (resource/stack-resource-context
                   (dt/clone (execute-query! conn \"select * from stocks\")))
@@ -413,7 +415,7 @@ _unnamed [560 3]:
 
 
 
-  ;; Results read in-place, result-set released as some point after dataset falls
+  ;; Results read in-place, duckdb-result released as some point after dataset falls
   ;; out of scope.  Be extremely careful with this one.
 
 tmducken.duckdb> (ds/head (execute-query! conn \"select * from stocks\"))
@@ -428,34 +430,24 @@ _unnamed [5 3]:
 |   MSFT | 2000-05-01 | 25.45 |
 ```"
   ([conn sql options]
-   (let [result-set (run-query! conn sql options)
-         n-cols (long (result-set :column-count))
-         n-rows (long (result-set :row-count))
-         col-dtype-size (long (@duckdb-ffi/column-def* :datatype-size))]
-     (when-let [duck-cols
-                (when-not (or (== 0 n-cols) (== 0 n-rows))
-                  (let [nbuf
-                        (native-buffer/wrap-address
-                         (result-set :columns)
-                         (* n-cols col-dtype-size)
-                         :int8 :little-endian nil)]
-                    (map (fn [^long idx]
-                           (dt-struct/inplace-new-struct
-                            :duckdb-column
-                            (dt/sub-buffer nbuf (* idx col-dtype-size))))
-                         (range n-cols))))]
-       (->
-        (->> duck-cols
-             (map (fn [duck-col]
-                    #:tech.v3.dataset{:name (dt-ffi/c->string (Pointer. (duck-col :name)))
-                                      :missing (nullmask->missing n-rows (duck-col :nullmask))
-                                      :data (coldata->buffer n-rows (duck-col :type) (duck-col :data))
-                                      ;;skip any further scanning
-                                      :force-datatype? true}))
-             (ds/new-dataset options))
-        ;;Ensure the dataset keeps a reference to the result set so it doesn't get gc'd
-        ;;while columns still have reference to the data.
-        (vary-meta assoc :duckdb-result result-set)))))
+   (let [duckdb-result (run-query! conn sql options)
+         ;;Ensure the dataset keeps a reference to the result set so it doesn't get gc'd
+         ;;while columns still have reference to the data.
+         metadata {:duckdb-result duckdb-result}
+         n-rows (long (duckdb-ffi/duckdb_row_count duckdb-result))
+         n-cols (long (duckdb-ffi/duckdb_column_count duckdb-result))]
+     (assert (> n-cols 0))
+     (->> (for [i (range n-cols)]
+            (let [^Pointer nullmask-pointer (duckdb-ffi/duckdb_nullmask_data duckdb-result i)
+                  ^Pointer data-pointer (duckdb-ffi/duckdb_column_data duckdb-result i)]
+              #:tech.v3.dataset {:name (dt-ffi/c->string (duckdb-ffi/duckdb_column_name duckdb-result i))
+                                 :missing (nullmask->missing n-rows (.-address nullmask-pointer))
+                                 :data (coldata->buffer n-rows
+                                                        (duckdb-ffi/duckdb_column_type duckdb-result i)
+                                                        (.-address data-pointer))
+                                 ;;skip any further scanning
+                                 :force-datatype? true}))
+          (ds/new-dataset options metadata))))
   ([conn sql]
    (sql->dataset conn sql nil)))
 

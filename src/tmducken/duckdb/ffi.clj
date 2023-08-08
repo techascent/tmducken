@@ -277,8 +277,28 @@ all memory associated with the appender.
                    :argtypes [[connection :pointer]
                               [query :string]
                               [out_result :pointer]]}
+    :duckdb_row_count {:rettype :int64
+                          :argtypes [[result :pointer]]}
+    :duckdb_column_count {:rettype :int64
+                          :argtypes [[result :pointer]]}
     :duckdb_destroy_result {:rettype :void
                             :argtypes [[result :pointer]]}
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;; Column functions
+    :duckdb_column_name {:rettype :pointer
+                         :argtypes [[result :pointer]
+                                    [col :int64]]}
+    :duckdb_nullmask_data {:rettype :pointer
+                           :argtypes [[result :pointer]
+                                      [col :int64]]}
+    :duckdb_column_type {:rettype :int64
+                         :argtypes [[result :pointer]
+                                    [col :int64]]}
+    :duckdb_column_data {:rettype :pointer
+                         :argtypes [[result :pointer]
+                                    [col :int64]]}
+
 
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
     ;; Prepared Statements

@@ -9,7 +9,6 @@
            [tech.v3.dataset Text]))
 
 
-
 (duckdb/initialize!)
 
 (def db* (delay (duckdb/initialize!)
@@ -17,6 +16,17 @@
 
 (def conn* (delay (duckdb/connect @db*)))
 
+
+(deftest trivial
+  (try
+    (duckdb/drop-table! @conn* "trivial")
+    (catch Throwable e nil))
+  (let [ds (-> (ds/->dataset [{:a 1}])
+               (ds/set-dataset-name "trivial"))]
+    (duckdb/create-table! @conn* ds)
+    (duckdb/insert-dataset! @conn* ds)
+    (is (= 1 (-> (duckdb/sql->dataset @conn* "select * from trivial;")
+                 (ds/row-count))))))
 
 (defn supported-datatype-ds
   []
