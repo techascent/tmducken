@@ -1,5 +1,11 @@
 # tech.ml.dataset Integration with DuckDB
 
+## THIS REPO HAS MOVED ##
+
+ * [techascent/tmducken](https://github.com/techascent/tmducken)
+ 
+ 
+
 [![Clojars Project](https://clojars.org/com.cnuernber/tmducken/latest-version.svg)](https://clojars.org/com.cnuernber/tmducken)
 
 
