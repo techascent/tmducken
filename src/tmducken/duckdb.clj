@@ -429,25 +429,21 @@ _unnamed [5 3]:
 ```"
   ([conn sql options]
    (let [result-set (run-query! conn sql options)
-         n-cols (long (result-set :column-count))
-         n-rows (long (result-set :row-count))
+         n-cols (long (duckdb-ffi/duckdb_column_count result-set))
+         n-rows (long (duckdb-ffi/duckdb_row_count result-set))
          col-dtype-size (long (@duckdb-ffi/column-def* :datatype-size))]
      (when-let [duck-cols
                 (when-not (or (== 0 n-cols) (== 0 n-rows))
-                  (let [nbuf
-                        (native-buffer/wrap-address
-                         (result-set :columns)
-                         (* n-cols col-dtype-size)
-                         :int8 :little-endian nil)]
-                    (map (fn [^long idx]
-                           (dt-struct/inplace-new-struct
-                            :duckdb-column
-                            (dt/sub-buffer nbuf (* idx col-dtype-size))))
-                         (range n-cols))))]
+                  (map (fn [^long idx]
+                         {:name (duckdb-ffi/duckdb_column_name result-set idx)
+                          :nullmask (duckdb-ffi/duckdb_nullmask_data result-set idx)
+                          :data (duckdb-ffi/duckdb_column_data result-set idx)
+                          :type (duckdb-ffi/duckdb_column_type result-set idx)})
+                       (range n-cols)))]
        (->
         (->> duck-cols
              (map (fn [duck-col]
-                    #:tech.v3.dataset{:name (dt-ffi/c->string (Pointer. (duck-col :name)))
+                    #:tech.v3.dataset{:name (dt-ffi/c->string (duck-col :name))
                                       :missing (nullmask->missing n-rows (duck-col :nullmask))
                                       :data (coldata->buffer n-rows (duck-col :type) (duck-col :data))
                                       ;;skip any further scanning
@@ -469,6 +465,7 @@ _unnamed [5 3]:
   (def conn (connect db))
 
   (create-table! conn stocks)
-  (append-dataset! conn stocks)
-  (execute-query! conn "select * from stocks")
+  (insert-dataset! conn stocks)
+  (run-query! conn "select * from stocks")
+
   )
