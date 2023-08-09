@@ -1,6 +1,6 @@
 # tech.ml.dataset Integration with DuckDB
 
-[![Clojars Project](https://clojars.org/com.cnuernber/tmducken/latest-version.svg)](https://clojars.org/com.cnuernber/tmducken)
+[![Clojars Project](https://clojars.org/com.techascent/tmducken/latest-version.svg)](https://clojars.org/com.techascent/tmducken)
 
 
 [DuckDB](https://duckdb.org/) is a high performance in-process database system.  It is a 
