@@ -3,16 +3,16 @@
 [![Clojars Project](https://clojars.org/com.techascent/tmducken/latest-version.svg)](https://clojars.org/com.techascent/tmducken)
 
 
-[DuckDB](https://duckdb.org/) is a high performance in-process database system.  It is a 
-natural pairing for [tech.ml.dataset](https://github.com/techascent/tech.ml.dataset) which is 
+[DuckDB](https://duckdb.org/) is a high performance in-process database system.  It is a
+natural pairing for [tech.ml.dataset](https://github.com/techascent/tech.ml.dataset) which is
 a high performance column-major in-memory dataframe system similar to pandas or R's data table.
-DuckDB provides perhaps [cleaner pathways](https://duckdb.org/docs/data/overview) to load/save 
-parquet files as you don't need to navigate the 
-[minefield of dependencies](https://techascent.github.io/tech.ml.dataset/tech.v3.libs.parquet.html) 
+DuckDB provides perhaps [cleaner pathways](https://duckdb.org/docs/data/overview) to load/save
+parquet files as you don't need to navigate the
+[minefield of dependencies](https://techascent.github.io/tech.ml.dataset/tech.v3.libs.parquet.html)
 required to use parquet from Clojure.
 
 
-* [API Documentation](https://cnuernber.github.io/tmducken/)
+* [API Documentation](https://techascent.github.io/tmducken/)
 
 
 This system requires the user to install/manage the duckdb binary dependency.  DuckDB also supplies a
@@ -20,7 +20,7 @@ This system requires the user to install/manage the duckdb binary dependency.  D
 so this library is entirely optional as you can use the jdbc driver with tmd's existing
 [jdbc integration](https://github.com/techascent/tech.ml.dataset.sql).
 
- 
+
 What this library provides beyond the JDBC pathway is very fast transfer from the
 duckdb query result, which is stored already in column-major form, to a dataset.
 The JDBC driver forces you to go row by row and essentially use the
@@ -43,8 +43,8 @@ script.  Linux users can simply type:
 source scripts/enable-duckdb
 ```
 
-Next, you should be able to call [initialize!](https://cnuernber.github.io/tmducken/tmducken.duckdb.html#var-initialize.21)
-in the duckdb namespace.  Be sure to read the [namespace documentation](https://cnuernber.github.io/tmducken/tmducken.duckdb.html)
+Next, you should be able to call [initialize!](https://techascent.github.io/tmducken/tmducken.duckdb.html#var-initialize.21)
+in the duckdb namespace.  Be sure to read the [namespace documentation](https://techascent.github.io/tmducken/tmducken.duckdb.html)
 and perhaps peruse the [unit tests](test/tmducken/duckdb_test.clj).
 
 
