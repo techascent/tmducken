@@ -299,6 +299,30 @@ all memory associated with the appender.
                          :argtypes [[result :pointer]
                                     [col :int64]]}
 
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;; Data Chunks
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+    ;; DUCKDB_API idx_t duckdb_result_chunk_count(duckdb_result result);
+    :duckdb_result_chunk_count {:rettype :int64
+                                :argtypes [[result :pointer]]}
+
+    ;;DUCKDB_API duckdb_data_chunk duckdb_result_get_chunk(duckdb_result result, idx_t chunk_index);
+    :duckdb_result_get_chunk {:rettype :pointer
+                              :argtypes [[result :pointer]
+                                         [chunk-index :int64]]}
+    ;;DUCKDB_API void duckdb_destroy_data_chunk(duckdb_data_chunk *chunk);
+    :duckdb_destroy_data_chunk {:rettype :void
+                                :argtypes [[chunk :pointer]]} ;;pptr
+    ;;DUCKDB_API idx_t duckdb_data_chunk_get_column_count(duckdb_data_chunk chunk);
+    :duckdb_data_chunk_get_column_count {:rettype :int64
+                                         :argtypes [[chunk :pointer]]}
+
+    ;;DUCKDB_API idx_t duckdb_data_chunk_get_size(duckdb_data_chunk chunk);
+    :duckdb_data_chunk_get_size {:rettype :int64
+                                 :argtypes [[chunk :pointer]]}
+
+
 
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
     ;; Prepared Statements
