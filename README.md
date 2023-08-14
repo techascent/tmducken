@@ -2,6 +2,10 @@
 
 [![Clojars Project](https://clojars.org/com.techascent/tmducken/latest-version.svg)](https://clojars.org/com.techascent/tmducken)
 
+## THIS REPO HAS MOVED ##
+
+ * [techascent/tmducken](https://github.com/techascent/tmducken)
+
 
 [DuckDB](https://duckdb.org/) is a high performance in-process database system.  It is a
 natural pairing for [tech.ml.dataset](https://github.com/techascent/tech.ml.dataset) which is
