@@ -1,17 +1,11 @@
 {:paths ["src"]
- :deps {techascent/tech.ml.dataset {:mvn/version "6.046"}
-        techascent/tech.ml.dataset.sql {:mvn/version "6.046-01"}
+ :deps {techascent/tech.ml.dataset {:mvn/version "7.000-beta-52"}
+        techascent/tech.ml.dataset.sql {:mvn/version "7.000-beta-52"}
         net.java.dev.jna/jna {:mvn/version "5.9.0"}}
  :aliases
- {:depstar
-  {:replace-deps {com.github.seancorfield/depstar {:mvn/version "2.0.193"}}
-   :ns-default hf.depstar
-   :exec-fn hf.depstar/jar
-   :exec-args {:group-id "com.cnuernber"
-               :artifact-id "tmducken"
-               :version "1.000-alpha-3"
-               :sync-pom true
-               :jar "target/tmducken.jar"}}
+ {:build
+  {:deps {io.github.clojure/tools.build {:git/tag "v0.8.1" :git/sha "7d40500"}}
+   :ns-default build}
   :test
   {:extra-deps {com.cognitect/test-runner
                 {:git/url "https://github.com/cognitect-labs/test-runner"
@@ -19,32 +13,44 @@
                 ch.qos.logback/logback-classic {:mvn/version "1.1.3"}}
    :extra-paths ["test"]
    :main-opts ["-m" "cognitect.test-runner"]}
-  ;;deploy to clojars
+  ;;Writes docs into docs/index.html
+  ;;clj -X:codox
+  :codox
+  {:extra-deps {codox-theme-rdash/codox-theme-rdash {:mvn/version "0.1.2"}
+                nrepl/nrepl {:mvn/version "0.8.3"}
+                cider/cider-nrepl {:mvn/version "0.25.5"}
+                com.cnuernber/codox {:mvn/version "1.001"}}
+   :exec-fn codox.main/-main
+   :exec-args {:group-id "com.techascent"
+               :artifact-id "tmducken"
+               :version "0.8.1-01"
+               :name "TMDucken"
+               :description "Clojure bindings for duckdb"
+               :metadata {:doc/format :markdown}
+               :html {:transforms [[:head] [:append [:script {:async true
+                                                              :src "https://www.googletagmanager.com/gtag/js?id=G-XJYNJF48RM"}]]
+                                   [:head] [:append [:script "window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-XJYNJF48RM');"]]]}
+               :themes [:rdash]
+               :source-paths ["src"]
+               :output-path "docs"
+               :doc-paths ["topics"]
+               :source-uri "https://github.com/techascent/tmducken/blob/master/{filepath}#L{line}"
+               :namespaces [tmducken.duckdb]}}
   :deploy
   {:replace-deps {slipset/deps-deploy {:mvn/version "0.1.5"}}
    :exec-fn deps-deploy.deps-deploy/deploy
    :exec-args {:installer :remote
                :sign-releases? true
                :artifact "target/tmducken.jar"}}
-
   :install
   {:replace-deps {slipset/deps-deploy {:mvn/version "0.1.5"}}
    :exec-fn deps-deploy.deps-deploy/deploy
    :exec-args {:installer :local
                :artifact "target/tmducken.jar"}}
 
-  ;;Writes docs into docs/index.html
-  ;;clj -X:codox
-  :codox
-  {:extra-deps {codox-theme-rdash/codox-theme-rdash {:mvn/version "0.1.2"}
-                com.cnuernber/codox {:mvn/version "1.000"}
-                cider/cider-nrepl {:mvn/version "0.26.0"}}
-   :exec-fn codox.main/-main
-   :exec-args {:arg-paths [[:aliases :depstar :exec-args]]
-               :description "DuckDB bindings to dtype-next and tech.ml.dataset"
-               :metadata {:doc/format :markdown}
-               :themes [:rdash]
-               :source-paths ["src"]
-               :output-path "docs"
-               :source-uri "https://github.com/cnuernber/tmducken/blob/master/{filepath}#L{line}"
-               :namespaces [tmducken.duckdb]}}}}
+  }
+ }

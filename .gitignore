@@ -7,3 +7,5 @@ target
 classes
 pom.xml
 *.asc
+
+data.csv
