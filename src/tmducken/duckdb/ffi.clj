@@ -28,6 +28,28 @@
 (def ^{:tag 'long} DUCKDB_TYPE_HUGEINT 16)
 (def ^{:tag 'long} DUCKDB_TYPE_VARCHAR 17)
 (def ^{:tag 'long} DUCKDB_TYPE_BLOB 18)
+;; decimal
+(def ^{:tag 'long} DUCKDB_TYPE_DECIMAL 19)
+;; duckdb_timestamp, in seconds
+(def ^{:tag 'long} DUCKDB_TYPE_TIMESTAMP_S 20)
+;; duckdb_timestamp, in milliseconds
+(def ^{:tag 'long} DUCKDB_TYPE_TIMESTAMP_MS 21)
+;; duckdb_timestamp, in nanoseconds
+(def ^{:tag 'long} DUCKDB_TYPE_TIMESTAMP_NS 22)
+ ;; enum type, only useful as logical type
+(def ^{:tag 'long} DUCKDB_TYPE_ENUM 23)
+;; list type, only useful as logical type
+(def ^{:tag 'long} DUCKDB_TYPE_LIST 24)
+;; struct type, only useful as logical type
+(def ^{:tag 'long} DUCKDB_TYPE_STRUCT 25)
+;; map type, only useful as logical type
+(def ^{:tag 'long} DUCKDB_TYPE_MAP 26)
+;; duckdb_hugeint
+(def ^{:tag 'long} DUCKDB_TYPE_UUID 27)
+;; union type, only useful as logical type
+(def ^{:tag 'long} DUCKDB_TYPE_UNION 28)
+;; duckdb_bit
+(def ^{:tag 'long} DUCKDB_TYPE_BIT 29)
 
 
 (def duckdb-type-map
@@ -49,7 +71,19 @@
    DUCKDB_TYPE_INTERVAL :DUCKDB_TYPE_INTERVAL
    DUCKDB_TYPE_HUGEINT :DUCKDB_TYPE_HUGEINT
    DUCKDB_TYPE_VARCHAR :DUCKDB_TYPE_VARCHAR
-   DUCKDB_TYPE_BLOB :DUCKDB_TYPE_BLOB})
+   DUCKDB_TYPE_BLOB :DUCKDB_TYPE_BLOB
+   DUCKDB_TYPE_DECIMAL :DUCKDB_TYPE_DECIMAL
+   DUCKDB_TYPE_TIMESTAMP_S :DUCKDB_TYPE_TIMESTAMP_S
+   DUCKDB_TYPE_TIMESTAMP_MS :DUCKDB_TYPE_TIMESTAMP_MS
+   DUCKDB_TYPE_TIMESTAMP_NS :DUCKDB_TYPE_TIMESTAMP_NS
+   DUCKDB_TYPE_ENUM :DUCKDB_TYPE_ENUM
+   DUCKDB_TYPE_LIST :DUCKDB_TYPE_LIST
+   DUCKDB_TYPE_STRUCT :DUCKDB_TYPE_STRUCT
+   DUCKDB_TYPE_MAP :DUCKDB_TYPE_MAP
+   DUCKDB_TYPE_UUID :DUCKDB_TYPE_UUID
+   DUCKDB_TYPE_UNION :DUCKDB_TYPE_UNION
+   DUCKDB_TYPE_BIT :DUCKDB_TYPE_BIT }
+  )
 
 (def ^{:tag 'long} DuckDBSuccess 0)
 (def ^{:tag 'long} DuckDBError 1)

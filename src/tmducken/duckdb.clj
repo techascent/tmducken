@@ -383,7 +383,8 @@ tmducken.duckdb> (get-config-options)
           ptr-width (casting/numeric-byte-width ptr-type)
           ptr-buf (-> (native-buffer/wrap-address data-ptr (* ptr-width n-rows) nil)
                       (native-buffer/set-native-datatype ptr-type))]
-      (dt/make-reader :string n-rows (dt-ffi/c->string (Pointer. (ptr-buf idx)))))))
+      (dt/make-reader :string n-rows (dt-ffi/c->string (Pointer. (ptr-buf idx)))))
+    (throw (RuntimeException. (format "Failed to get a valid column type for integer type %d" duckdb-type)))))
 
 
 (defn sql->dataset
@@ -439,14 +440,18 @@ _unnamed [5 3]:
      (assert (> n-cols 0))
      (->> (for [i (range n-cols)]
             (let [^Pointer nullmask-pointer (duckdb-ffi/duckdb_nullmask_data duckdb-result i)
-                  ^Pointer data-pointer (duckdb-ffi/duckdb_column_data duckdb-result i)]
-              #:tech.v3.dataset {:name (dt-ffi/c->string (duckdb-ffi/duckdb_column_name duckdb-result i))
-                                 :missing (nullmask->missing n-rows (.-address nullmask-pointer))
-                                 :data (coldata->buffer n-rows
-                                                        (duckdb-ffi/duckdb_column_type duckdb-result i)
-                                                        (.-address data-pointer))
-                                 ;;skip any further scanning
-                                 :force-datatype? true}))
+                  ^Pointer data-pointer (duckdb-ffi/duckdb_column_data duckdb-result i)
+                  cname (dt-ffi/c->string (duckdb-ffi/duckdb_column_name duckdb-result i))]
+              (try
+                #:tech.v3.dataset {:name cname
+                                   :missing (when nullmask-pointer (nullmask->missing n-rows (.-address nullmask-pointer)))
+                                   :data (coldata->buffer n-rows
+                                                          (duckdb-ffi/duckdb_column_type duckdb-result i)
+                                                          (.-address data-pointer))
+                                   ;;skip any further scanning
+                                   :force-datatype? true}
+                (catch Exception e
+                  (throw (RuntimeException. (str "Failed to parse column " cname) e))))))
           (ds/new-dataset options metadata))))
   ([conn sql]
    (sql->dataset conn sql nil)))
