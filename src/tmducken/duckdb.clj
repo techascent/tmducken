@@ -97,8 +97,8 @@ _unnamed [5 3]:
                 (if libpath
                   (log/infof "Attempting to load duckdb from \"%s\"" libpath)
                   (log/infof "Attempting to load in-process duckdb" libpath))
-                (dt-ffi/library-singleton-set! duckdb-ffi/lib libpath)
-                (duckdb-ffi/define-datatypes!)))
+                (duckdb-ffi/define-datatypes!)
+                (dt-ffi/library-singleton-set! duckdb-ffi/lib libpath)))
             true)))
   ([] (initialize! nil)))
 
@@ -387,11 +387,11 @@ tmducken.duckdb> (get-config-options)
     (throw (RuntimeException. (format "Failed to get a valid column type for integer type %d" duckdb-type)))))
 
 
-(defn sql->dataset
-  "Execute a query returning a dataset.  Most data will be read in-place in the result
+(defn sql->datasets
+  "Execute a query returning a dataset iterator.  Most data will be read in-place in the result
   set which will be link via metadata to the returned dataset.  If you wish to release
   the data immediately wrap call in `tech.v3.resource/stack-resource-context` and clone
-  the result.
+  each result.
 
   Example:
 
@@ -401,7 +401,7 @@ tmducken.duckdb> (get-config-options)
   ;; !!Recommended!! - Results copied into jvm and duckdb-result released immediately after query
 
 tmducken.duckdb> (resource/stack-resource-context
-                  (dt/clone (execute-query! conn \"select * from stocks\")))
+                  (mapv dt/clone (sql->datasets conn \"select * from stocks\")))
 _unnamed [560 3]:
 
 | symbol |       date | price |
@@ -454,8 +454,16 @@ _unnamed [5 3]:
                   (throw (RuntimeException. (str "Failed to parse column " cname) e))))))
           (ds/new-dataset options metadata))))
   ([conn sql]
-   (sql->dataset conn sql nil)))
+   (sql->datasets conn sql nil)))
 
+
+(defn sql->dataset
+  "Execute a query returning a single dataset.  This runs the query in a context that releases the memory used
+  for the result set before function returns returning a dataset that has no native bindings."
+  ([conn sql options]
+   (resource/stack-resource-context
+    (apply ds/concat (sql->datasets conn sql options))))
+  ([conn sql] (sql->dataset conn sql nil)))
 
 (comment
   (def stocks
@@ -466,6 +474,6 @@ _unnamed [5 3]:
   (def conn (connect db))
 
   (create-table! conn stocks)
-  (append-dataset! conn stocks)
+  (insert-dataset! conn stocks)
   (execute-query! conn "select * from stocks")
   )

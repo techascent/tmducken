@@ -319,7 +319,7 @@ all memory associated with the appender.
                             :argtypes [[result :pointer]]}
 
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    ;; Column functions
+    ;; Legacy column functions
     :duckdb_column_name {:rettype :pointer
                          :argtypes [[result :pointer]
                                     [col :int64]]}
@@ -334,28 +334,53 @@ all memory associated with the appender.
                                     [col :int64]]}
 
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    ;; Data Chunks
+    ;; Data Chunks - new API
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     ;; DUCKDB_API idx_t duckdb_result_chunk_count(duckdb_result result);
     :duckdb_result_chunk_count {:rettype :int64
-                                :argtypes [[result :pointer]]}
+                                :argtypes [[result (by-value :duckdb-result)]]}
 
     ;;DUCKDB_API duckdb_data_chunk duckdb_result_get_chunk(duckdb_result result, idx_t chunk_index);
-    :duckdb_result_get_chunk {:rettype :pointer
-                              :argtypes [[result :pointer]
+    :duckdb_result_get_chunk {:rettype (by-value :duckdb-data-chunk)
+                              :argtypes [[result (by-value :duckdb-result)]
                                          [chunk-index :int64]]}
     ;;DUCKDB_API void duckdb_destroy_data_chunk(duckdb_data_chunk *chunk);
     :duckdb_destroy_data_chunk {:rettype :void
-                                :argtypes [[chunk :pointer]]} ;;pptr
+                                :argtypes [[chunk :pointer]]} ;;ptr-to-chunk
     ;;DUCKDB_API idx_t duckdb_data_chunk_get_column_count(duckdb_data_chunk chunk);
     :duckdb_data_chunk_get_column_count {:rettype :int64
-                                         :argtypes [[chunk :pointer]]}
+                                         :argtypes [[chunk (by-value :duckdb-data-chunk)]]}
 
     ;;DUCKDB_API idx_t duckdb_data_chunk_get_size(duckdb_data_chunk chunk);
     :duckdb_data_chunk_get_size {:rettype :int64
-                                 :argtypes [[chunk :pointer]]}
+                                 :argtypes [[chunk (by-value :duckdb-data-chunk)]]}
 
+    ;;DUCKDB_API duckdb_vector duckdb_data_chunk_get_vector(duckdb_data_chunk chunk, idx_t col_idx);
+    :duckdb_data_chunk_get_vector {:rettype (by-value :duckdb-vector)
+                                   :argtypes [[chunk (by-value :duckdb-data-chunk)]
+                                              [col-idx :int64]]}
+
+    ;;DUCKDB_API duckdb_logical_type duckdb_vector_get_column_type(duckdb_vector vector)
+    :duckdb_vector_get_column_type {:rettype (by-value :duckdb-logical-type)
+                                    :argtypes [[vector (by-value :duckdb-vector)]]}
+
+    ;;DUCKDB_API void *duckdb_vector_get_data(duckdb_vector vector)
+    :duckdb_vector_get_data {:rettype :pointer
+                             :argtypes [[vector (by-value :duckdb-vector)]]}
+
+    ;;DUCKDB_API uint64_t *duckdb_vector_get_validity(duckdb_vector vector)
+    :duckdb_vector_get_validity {:rettype :pointer
+                                 :argtypes [[vector (by-value :duckdb-vector)]]}
+
+
+    ;;DUCKDB_API duckdb_logical_type duckdb_create_logical_type(duckdb_type type);
+    :duckdb_create_logical_type {:rettype (by-value :duckdb-logical-type)
+                                 :argtypes [[duckdb_type :int32]]}
+
+    ;;DUCKDB_API void duckdb_destroy_logical_type(duckdb_logical_type *type);
+    :duckdb_destroy_logical_type {:rettype :void
+                                  :argtypes [[type :pointer]]}
 
 
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -451,8 +476,34 @@ all memory associated with the appender.
                        :datatype @ptr-dtype*}])))
 
 
+
+(def logical-type-def*
+  (delay
+    (dt-struct/define-datatype! :duckdb-logical-type
+      [{:name :__lglt
+        :datatype @ptr-dtype*}])))
+
+
+(def data-chunk-def*
+  (delay
+    (dt-struct/define-datatype! :duckdb-data-chunk
+      [{:name :__dtck
+        :datatype @ptr-dtype*}])))
+
+
+(def vector-def*
+  (delay
+    (dt-struct/define-datatype! :duckdb-vector
+      [{:name :__vec
+        :datatype @ptr-dtype*}])))
+
+
+
 (defn define-datatypes!
   []
   @blob-def*
   @column-def*
-  @result-def*)
+  @result-def*
+  @logical-type-def*
+  @data-chunk-def*
+  @vector-def*)
