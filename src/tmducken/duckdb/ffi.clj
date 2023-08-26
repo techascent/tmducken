@@ -212,7 +212,7 @@ This can fail if either the name is invalid, or if the value provided for the op
                                         [schema :string]
                                         [table :string]
                                         [out_appender :pointer]]}
-    :duckdb_appender_error {:rettype :string
+    :duckdb_appender_error {:rettype :pointer?
                             :argtypes [[appender :pointer]]
                             :doc "Returns the error message associated with the given appender.
 If the appender has no error message, this returns `nullptr` instead.
@@ -397,6 +397,10 @@ all memory associated with the appender.
     ;;DUCKDB_API uint64_t *duckdb_vector_get_validity(duckdb_vector vector)
     :duckdb_vector_get_validity {:rettype :pointer
                                  :argtypes [[vector (by-value :duckdb-vector)]]}
+
+    ;;DUCKDB_API void duckdb_vector_ensure_validity_writable(duckdb_vector vector);
+    :duckdb_vector_ensure_validity_writable {:rettype :void
+                                             :argtypes [[vector (by-value :duckdb-vector)]]}
 
 
     ;;DUCKDB_API duckdb_logical_type duckdb_create_logical_type(duckdb_type type);

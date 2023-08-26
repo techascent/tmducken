@@ -60,10 +60,11 @@ _unnamed [5 3]:
             [ham-fisted.lazy-noncaching :as lznc]
             [clojure.tools.logging :as log])
   (:import [java.nio.file Paths]
-           [java.util Map]
+           [java.util Map Iterator]
            [java.time LocalDate LocalTime]
            [tech.v3.datatype.ffi Pointer]
-           [org.roaringbitmap RoaringBitmap]))
+           [org.roaringbitmap RoaringBitmap]
+           [clojure.lang Seqable IReduceInit]))
 
 
 (set! *warn-on-reflection* true)
@@ -305,12 +306,14 @@ tmducken.duckdb> (get-config-options)
   ([conn dataset options]
    (resource/stack-resource-context
     (let [table-name (sql/table-name dataset options)
-          app-ptr (dt-ffi/make-ptr :pointer 0)
-          app-status (duckdb-ffi/duckdb_appender_create conn "" table-name app-ptr)
-          _ (resource/track app-ptr {:track-type :stack
-                                     :dispose-fn #(duckdb-ffi/duckdb_appender_destroy
-                                                   app-ptr)})
-          appender (Pointer. (app-ptr 0))
+          appender (dt-struct/new-struct :duckdb-appender {:container-type :native-heap
+                                                           :resource-type :stack})
+          app-status (duckdb-ffi/duckdb_appender_create conn "" table-name appender)
+          ;;this is fine because we are hardcoding to track via stack.
+          ;;Normally dispose-fn cannot reference things being tracked
+          _ (resource/track appender {:track-type :stack
+                                      :dispose-fn #(do #_(println "destroying appender")
+                                                       (duckdb-ffi/duckdb_appender_destroy appender))})
           check-error (fn [status]
                         (when-not (= status duckdb-ffi/DuckDBSuccess)
                           (let [err (duckdb-ffi/duckdb_appender_error appender)]
@@ -318,7 +321,7 @@ tmducken.duckdb> (get-config-options)
           _ (check-error app-status)
           n-rows (ds/row-count dataset)
           n-cols (ds/column-count dataset)
-          colvec (mapv dt/->buffer (ds/columns dataset))
+          colvec (vec (ds/columns dataset))
           dtypes (mapv (comp packing/unpack-datatype dt/elemwise-datatype) colvec)
           duckdb-type-ids (mapv dtype-type->duckdb dtypes)
           chunk-size (duckdb-ffi/duckdb_vector_size)
@@ -341,18 +344,18 @@ tmducken.duckdb> (get-config-options)
                  n-valid (quot (+ row-count 63) 64)]
              (duckdb-ffi/duckdb_data_chunk_set_size write-chunk row-count)
              (dotimes [col n-cols]
-               (let [dvec (duckdb-ffi/duckdb_data_chunk_get_vector write-chunk)
-                     daddr (ptr->addr dvec)
+               (let [dvec (duckdb-ffi/duckdb_data_chunk_get_vector write-chunk col)
+                     _ (when (== 0 chunk)
+                         (duckdb-ffi/duckdb_vector_ensure_validity_writable dvec))
+                     daddr (ptr->addr (duckdb-ffi/duckdb_vector_get_data dvec))
                      validity-data (-> (duckdb-ffi/duckdb_vector_get_validity dvec)
                                        (ptr->addr)
-                                       (native-buffer/wrap-address (* n-valid 8))
-                                       (native-buffer/set-native-datatype :int64)
+                                       (wrap-addr (* n-valid 8) :int64)
                                        (dt/->buffer))
                      subcol (dt/sub-buffer (colvec col) row-offset row-count)
                      missing (ds/missing subcol)
                      missing-card (dt/ecount missing)
                      col-dt (dtypes col)]
-                 ;;Fill out missing data
                  (cond
                    (== missing-card row-count)
                    (dt/set-constant! validity-data 0)
@@ -371,6 +374,7 @@ tmducken.duckdb> (get-config-options)
                                  bit-idx (rem ne 64)]
                              (.writeLong validity-data vidx (bit-and-not cv (bit-shift-left 1 bit-idx)))
                              (recur (.hasNext miter))))))))
+
                  (case col-dt
                    (:int8 :uint8 :boolean) (dt/copy! subcol (wrap-addr daddr row-count (if (= :uint8 col-dt)
                                                                                         :uint8
@@ -390,6 +394,8 @@ tmducken.duckdb> (get-config-options)
                                                           (packing/pack subcol)
                                                           subcol)
                                                         (wrap-addr daddr (* 8 row-count) :int64))
+                   ;;We cache strings per-column per-chunk as the translation into duckdb structures is tedious.
+                   ;;This is also why we clean up resources per-chunk.
                    (:string :text)
                    (let [stable (hamf/java-hashmap)
                          nbuf (wrap-addr daddr (* 16 row-count) :int8)]
@@ -401,7 +407,7 @@ tmducken.duckdb> (get-config-options)
                            (let [bval (.getBytes sval)
                                  slen (alength bval)
                                  bufoff (* 16 idx)]
-                             (.put stable sval bufoff)
+                             (.put stable sval (+ daddr bufoff))
                              (native-buffer/write-int nbuf bufoff slen)
                              (if (<= slen 12)
                                (let [bufoff (+ bufoff 4)]
@@ -411,12 +417,12 @@ tmducken.duckdb> (get-config-options)
                                      bufaddr (ptr->addr valbuf)]
                                  (dt/copy! bval valbuf)
                                  (native-buffer/write-long nbuf bufoff bufaddr)))))))))))
-             (check-error (duckdb-ffi/duckdb_append_data_chunk appender write-chunk)))))
+             (check-error (duckdb-ffi/duckdb_append_data_chunk appender write-chunk))
+             (duckdb-ffi/duckdb_data_chunk_reset write-chunk))))
         (finally
-          (duckdb-ffi/duckdb_destroy_data_chunk write-chunk)
+          (duckdb-ffi/duckdb_destroy_data_chunk (map->struct :duckdb-data-chunk write-chunk :stack))
           (dotimes [cidx n-cols]
-            (duckdb-ffi/duckdb_destroy_logical_type (logical-types cidx)))
-          (duckdb-ffi/duckdb_appender_destroy appender))))))
+            (duckdb-ffi/duckdb_destroy_logical_type (logical-types cidx))))))))
   ([conn dataset] (insert-dataset! conn dataset nil)))
 
 
@@ -527,10 +533,37 @@ tmducken.duckdb> (get-config-options)
              (String. (dt/->byte-array (dt/sub-buffer nbuf soff slen))))
            (let [ptr-off (+ len-off 8)
                  ptr-addr (native-buffer/read-long nbuf ptr-off)]
-             (String. (dt/->byte-array (native-buffer/wrap-address ptr-addr slen))))))))
+             (String. (dt/->byte-array (native-buffer/wrap-address ptr-addr slen nil))))))))
     (throw (RuntimeException. (format "Failed to get a valid column type for integer type %d" duckdb-type)))))
 
 
+(defn- supplier-seq
+  [^java.util.function.Supplier s]
+  (when-let [item (.get s)]
+    (cons item (lazy-seq (supplier-seq s)))))
+
+
+(deftype MappingSupplier [map-fn ^Iterator src-iter]
+  java.util.function.Supplier
+  (get [this]
+    (when (.hasNext src-iter)
+      (map-fn (.next src-iter))))
+  Seqable
+  (seq [this] (supplier-seq this))
+  IReduceInit
+  (reduce [this rfn acc]
+    (let [iter src-iter]
+      (loop [continue? (.hasNext iter)
+             acc acc]
+        (if (and continue? (not (reduced? acc)))
+          (let [acc (rfn acc (map-fn (.next iter)))]
+            (recur (.hasNext src-iter) acc))
+          (if (reduced? acc) @acc acc))))))
+
+
+(defn- supplier-map
+  [map-fn iable]
+  (MappingSupplier. map-fn (.iterator ^Iterable iable)))
 
 (defn- results->datasets
   [duckdb-result options]
@@ -563,13 +596,14 @@ tmducken.duckdb> (get-config-options)
                                                                    :force-datatype? true})))
                                  (ds/new-dataset options (assoc metadata :data-chunk data-chunk))))))]
     (if (== 0 (long (duckdb-ffi/duckdb_result_is_streaming duckdb-result)))
-      (let [chunk-count (duckdb-ffi/duckdb_result_chunk_count duckdb-result)]
-        (->> (hamf/range chunk-count)
-             (lznc/map #(let [chunk (duckdb-ffi/duckdb_result_get_chunk duckdb-result %)
-                              chunk-ptr (map->struct :duckdb-data-chunk chunk :auto)]
-                          (realize-chunk (resource/track chunk {:track-type :auto
-                                                                :dispose-fn (fn []
-                                                                              (duckdb-ffi/duckdb_destroy_data_chunk chunk-ptr))}))))))
+      (->> (hamf/range (duckdb-ffi/duckdb_result_chunk_count duckdb-result))
+           (supplier-map
+            (fn [^long cidx]
+              (let [chunk (duckdb-ffi/duckdb_result_get_chunk duckdb-result cidx)
+                    chunk-ptr (map->struct :duckdb-data-chunk chunk :auto)]
+                (-> (resource/track chunk {:track-type :auto
+                                           :dispose-fn #(duckdb-ffi/duckdb_destroy_data_chunk chunk-ptr)})
+                    (realize-chunk))))))
       (throw (RuntimeException. "Streaming results are not supported at this time")))))
 
 
@@ -586,8 +620,8 @@ tmducken.duckdb> (get-config-options)
 
   ;; !!Recommended!! - Results copied into jvm and duckdb-result released immediately after query
 
-tmducken.duckdb> (resource/stack-resource-context
-                  (mapv dt/clone (sql->datasets conn \"select * from stocks\")))
+tmducken.duckdb> (first (resource/stack-resource-context
+                  (mapv dt/clone (sql->datasets conn \"select * from stocks\"))))
 _unnamed [560 3]:
 
 | symbol |       date | price |
@@ -605,7 +639,7 @@ _unnamed [560 3]:
   ;; Results read in-place, duckdb-result released as some point after dataset falls
   ;; out of scope.  Be extremely careful with this one.
 
-tmducken.duckdb> (ds/head (execute-query! conn \"select * from stocks\"))
+  tmducken.duckdb> (ds/head (sql->dataset conn \"select * from stocks\"))
 _unnamed [5 3]:
 
 | symbol |       date | price |
@@ -628,18 +662,32 @@ _unnamed [5 3]:
   for the result set before function returns returning a dataset that has no native bindings."
   ([conn sql options]
    (resource/stack-resource-context
-    (apply ds/concat (sql->datasets conn sql options))))
+    (let [dsdata (vec (sql->datasets conn sql options))]
+      (if (== 1 (count dsdata))
+        ;;ensure things get cloned into jvm heap.
+        (dt/clone (dsdata 0))
+        (apply ds/concat dsdata)))))
   ([conn sql] (sql->dataset conn sql nil)))
 
 (comment
-  (def stocks
-    (-> (ds/->dataset "https://github.com/techascent/tech.ml.dataset/raw/master/test/data/stocks.csv" {:key-fn keyword})
-        (vary-meta assoc :name :stocks)))
-  (initialize!)
-  (def db (open-db))
-  (def conn (connect db))
+  (do
+    (def stocks
+      (-> (ds/->dataset "https://github.com/techascent/tech.ml.dataset/raw/master/test/data/stocks.csv" {:key-fn keyword})
+          (vary-meta assoc :name :stocks)))
+    (initialize!)
+    (def db (open-db))
+    (def conn (connect db))
 
-  (create-table! conn stocks)
-  (insert-dataset! conn stocks)
+    (create-table! conn stocks)
+    (insert-dataset! conn stocks))
   (def res (run-query! conn "select * from stocks"))
+
+  (def long-str-ds (ds/->dataset [{:a "one string longer than 12 characters" :b 1}
+                                  {:a "another string longer than 12 characters" :b 2}]))
+
+  (create-table! conn long-str-ds)
+  (insert-dataset! conn long-str-ds)
+  (def res (run-query! conn "select * from _unnamed"))
+
+
   )
