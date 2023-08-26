@@ -56,8 +56,11 @@ _unnamed [5 3]:
             [tech.v3.resource :as resource]
             [tech.v3.dataset :as ds]
             [tech.v3.dataset.sql :as sql]
+            [ham-fisted.api :as hamf]
+            [ham-fisted.lazy-noncaching :as lznc]
             [clojure.tools.logging :as log])
   (:import [java.nio.file Paths]
+           [java.util Map]
            [java.time LocalDate LocalTime]
            [tech.v3.datatype.ffi Pointer]
            [org.roaringbitmap RoaringBitmap]))
@@ -311,13 +314,26 @@ tmducken.duckdb> (get-config-options)
   ([conn dataset] (insert-dataset! conn dataset nil)))
 
 
-(defn- nullmask->missing
-  ^RoaringBitmap [^long n-rows ^long nmask]
-  (if (== 0 nmask)
+(defn- validity->missing
+  "Validity is 64 bit."
+  ^RoaringBitmap [^long n-rows ^Pointer nmask]
+  (if (or (nil? nmask) (== 0 (.address nmask)))
     (bitmap/->bitmap)
-    (-> (native-buffer/wrap-address nmask n-rows nil)
-        (unary-pred/bool-reader->indexes)
-        (bitmap/->bitmap))))
+    (let [nvals (quot (+ n-rows 63) 64)
+          dvec (-> (native-buffer/wrap-address (.address nmask) (* nvals 8) nil)
+                   (native-buffer/set-native-datatype :int64)
+                   (dt/->buffer))
+          rval (bitmap/->bitmap)]
+      (dotimes [idx nvals]
+        (let [lval (.readLong dvec idx)]
+          (when-not (== lval Long/MAX_VALUE)
+            (let [logical-idx (* idx 64)]
+              (loop [bit-idx 0]
+                (when (< bit-idx 64)
+                  (when (== 0 (bit-and lval (bit-shift-left 1 bit-idx)))
+                    (.add rval (unchecked-int (+ bit-idx logical-idx))))
+                  (recur (unchecked-inc bit-idx))))))))
+      rval)))
 
 
 (defn- coldata->buffer
@@ -379,12 +395,86 @@ tmducken.duckdb> (get-config-options)
         (native-buffer/set-native-datatype :packed-instant))
 
     :DUCKDB_TYPE_VARCHAR
-    (let [ptr-type @duckdb-ffi/ptr-dtype*
-          ptr-width (casting/numeric-byte-width ptr-type)
-          ptr-buf (-> (native-buffer/wrap-address data-ptr (* ptr-width n-rows) nil)
-                      (native-buffer/set-native-datatype ptr-type))]
-      (dt/make-reader :string n-rows (dt-ffi/c->string (Pointer. (ptr-buf idx)))))
+;;     typedef struct {
+;; 	union {
+;; 		struct {
+;; 			uint32_t length;
+;; 			char prefix[4];
+;; 			char *ptr;
+;; 		} pointer;
+;; 		struct {
+;; 			uint32_t length;
+;; 			char inlined[12];
+;; 		} inlined;
+;; 	} value;
+;; } duckdb_string_t;
+    (let [string-t-width 16
+          inline-len 12
+          nbuf (native-buffer/wrap-address data-ptr (* string-t-width n-rows) nil)]
+      (dt/make-reader
+       :string n-rows
+       (let [len-off (* idx string-t-width)
+             slen (native-buffer/read-int nbuf len-off)]
+         #_(println "reading string at idx" idx len-off slen)
+         (if (<= slen inline-len)
+           (let [soff (+ len-off 4)]
+             (String. (dt/->byte-array (dt/sub-buffer nbuf soff slen))))
+           (let [ptr-off (+ len-off 8)
+                 ptr-addr (native-buffer/read-long nbuf ptr-off)]
+             (String. (dt/->byte-array (native-buffer/wrap-address ptr-addr slen))))))))
     (throw (RuntimeException. (format "Failed to get a valid column type for integer type %d" duckdb-type)))))
+
+
+(defn- map->struct
+  [dtype data track-type]
+  (let [rv (dt-struct/new-struct dtype {:container-type :native-heap
+                                        :resource-type track-type})]
+    (reduce (fn [acc e]
+              (.put ^Map rv (key e) (val e)))
+            false
+            data)
+    rv))
+
+
+(defn- results->datasets
+  [duckdb-result options]
+  (let [metadata {:duckdb-result duckdb-result}
+        n-cols (long (duckdb-ffi/duckdb_column_count duckdb-result))
+        names (hamf/mapv #(dt-ffi/c->string (duckdb-ffi/duckdb_column_name duckdb-result %)) (hamf/range n-cols))
+        types (hamf/mapv #(let [db-type (duckdb-ffi/duckdb_column_logical_type duckdb-result %)
+                                ;;complex work-around so we have a pointer to release as the destroy fn takes
+                                ;;a ptr and not the thing by copying.
+                                type-ptr (map->struct :duckdb-logical-type db-type :auto)]
+                            (resource/track db-type {:track-type :auto
+                                                     :dispose-fn (fn [] (duckdb-ffi/duckdb_destroy_logical_type type-ptr))})
+                            db-type)
+                         (hamf/range n-cols))
+        type-ids (lznc/map #(duckdb-ffi/duckdb_get_type_id %) types)
+        realize-chunk (fn [data-chunk]
+                        (try
+                          (let [n-rows (duckdb-ffi/duckdb_data_chunk_get_size data-chunk)]
+                            (->> (hamf/range n-cols)
+                                 (hamf/mapv (fn [cidx]
+                                              (let [vdata (duckdb-ffi/duckdb_data_chunk_get_vector data-chunk cidx)
+                                                    ^Pointer data-ptr (duckdb-ffi/duckdb_vector_get_data vdata)
+                                                    missing (duckdb-ffi/duckdb_vector_get_validity vdata)]
+                                                #:tech.v3.dataset {:name (names cidx)
+                                                                   :missing (validity->missing n-rows missing)
+                                                                   :data (coldata->buffer n-rows
+                                                                                          (type-ids cidx)
+                                                                                          (.-address data-ptr))
+                                                                   ;;skip any further scanning
+                                                                   :force-datatype? true})))
+                                 (ds/new-dataset options (assoc metadata :data-chunk data-chunk))))))]
+    (if (== 0 (long (duckdb-ffi/duckdb_result_is_streaming duckdb-result)))
+      (let [chunk-count (duckdb-ffi/duckdb_result_chunk_count duckdb-result)]
+        (->> (hamf/range chunk-count)
+             (lznc/map #(let [chunk (duckdb-ffi/duckdb_result_get_chunk duckdb-result %)
+                              chunk-ptr (map->struct :duckdb-data-chunk chunk :auto)]
+                          (realize-chunk (resource/track chunk {:track-type :auto
+                                                                :dispose-fn (fn []
+                                                                              (duckdb-ffi/duckdb_destroy_data_chunk chunk-ptr))}))))))
+      (throw (RuntimeException. "Streaming results are not supported at this time")))))
 
 
 (defn sql->datasets
@@ -431,28 +521,8 @@ _unnamed [5 3]:
 |   MSFT | 2000-05-01 | 25.45 |
 ```"
   ([conn sql options]
-   (let [duckdb-result (run-query! conn sql options)
-         ;;Ensure the dataset keeps a reference to the result set so it doesn't get gc'd
-         ;;while columns still have reference to the data.
-         metadata {:duckdb-result duckdb-result}
-         n-rows (long (duckdb-ffi/duckdb_row_count duckdb-result))
-         n-cols (long (duckdb-ffi/duckdb_column_count duckdb-result))]
-     (assert (> n-cols 0))
-     (->> (for [i (range n-cols)]
-            (let [^Pointer nullmask-pointer (duckdb-ffi/duckdb_nullmask_data duckdb-result i)
-                  ^Pointer data-pointer (duckdb-ffi/duckdb_column_data duckdb-result i)
-                  cname (dt-ffi/c->string (duckdb-ffi/duckdb_column_name duckdb-result i))]
-              (try
-                #:tech.v3.dataset {:name cname
-                                   :missing (when nullmask-pointer (nullmask->missing n-rows (.-address nullmask-pointer)))
-                                   :data (coldata->buffer n-rows
-                                                          (duckdb-ffi/duckdb_column_type duckdb-result i)
-                                                          (.-address data-pointer))
-                                   ;;skip any further scanning
-                                   :force-datatype? true}
-                (catch Exception e
-                  (throw (RuntimeException. (str "Failed to parse column " cname) e))))))
-          (ds/new-dataset options metadata))))
+   (-> (run-query! conn sql options)
+       (results->datasets options)))
   ([conn sql]
    (sql->datasets conn sql nil)))
 
@@ -475,5 +545,5 @@ _unnamed [5 3]:
 
   (create-table! conn stocks)
   (insert-dataset! conn stocks)
-  (execute-query! conn "select * from stocks")
+  (def res (run-query! conn "select * from stocks"))
   )

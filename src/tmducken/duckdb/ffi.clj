@@ -333,6 +333,16 @@ all memory associated with the appender.
                          :argtypes [[result :pointer]
                                     [col :int64]]}
 
+
+    ;;DUCKDB_API bool duckdb_result_is_streaming(duckdb_result result);
+    :duckdb_result_is_streaming {:rettype :int8
+                                 :argtypes [[result (by-value :duckdb-result)]]}
+
+    ;;DUCKDB_API duckdb_logical_type duckdb_column_logical_type(duckdb_result *result, idx_t col);
+    :duckdb_column_logical_type {:rettype (by-value :duckdb-logical-type)
+                                 :argtypes [[result :pointer]
+                                            [cidx :int64]]}
+
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
     ;; Data Chunks - new API
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -381,6 +391,10 @@ all memory associated with the appender.
     ;;DUCKDB_API void duckdb_destroy_logical_type(duckdb_logical_type *type);
     :duckdb_destroy_logical_type {:rettype :void
                                   :argtypes [[type :pointer]]}
+
+    ;;DUCKDB_API duckdb_type duckdb_get_type_id(duckdb_logical_type type);
+    :duckdb_get_type_id {:rettype :int32
+                         :argtypes [[type (by-value :duckdb-logical-type)]]}
 
 
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
