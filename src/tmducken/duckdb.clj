@@ -260,9 +260,48 @@ tmducken.duckdb> (get-config-options)
     0))
 
 
+(defn- dtype-type->duckdb
+  [dt]
+  (case dt
+    :boolean duckdb-ffi/DUCKDB_TYPE_BOOLEAN
+    :int8  duckdb-ffi/DUCKDB_TYPE_TINYINT
+    :uint8 duckdb-ffi/DUCKDB_TYPE_UTINYINT
+    :int16 duckdb-ffi/DUCKDB_TYPE_SMALLINT
+    :uint16 duckdb-ffi/DUCKDB_TYPE_USMALLINT
+    :int32 duckdb-ffi/DUCKDB_TYPE_INTEGER
+    :uint32 duckdb-ffi/DUCKDB_TYPE_UINTEGER
+    :int64 duckdb-ffi/DUCKDB_TYPE_BIGINT
+    :uint64 duckdb-ffi/DUCKDB_TYPE_UBIGINT
+    :float32 duckdb-ffi/DUCKDB_TYPE_FLOAT
+    :float64 duckdb-ffi/DUCKDB_TYPE_DOUBLE
+    :local-date duckdb-ffi/DUCKDB_TYPE_DATE
+    :local-time duckdb-ffi/DUCKDB_TYPE_TIME
+    :instant duckdb-ffi/DUCKDB_TYPE_TIMESTAMP
+    :string duckdb-ffi/DUCKDB_TYPE_VARCHAR))
+
+
+(defn- map->struct!
+  [data rv]
+  (reduce (fn [acc e]
+            (.put ^Map rv (key e) (val e)))
+          false
+          data)
+  rv)
+
+(defn- map->struct
+  [dtype data track-type]
+  (map->struct! data (dt-struct/new-struct dtype {:container-type :native-heap
+                                                  :resource-type track-type})))
+
+(defn- ptr->addr
+  ^long [ptr]
+  (.address (dt-ffi/->pointer ptr)))
+
+
 (defn insert-dataset!
   "Append this dataset using the higher performance append api of duckdb.  This is recommended
-  as opposed to using sql statements or prepared statements."
+  as opposed to using sql statements or prepared statements.  That being said the schema of this
+  dataset must match *precisely* the schema of the target table."
   ([conn dataset options]
    (resource/stack-resource-context
     (let [table-name (sql/table-name dataset options)
@@ -279,38 +318,105 @@ tmducken.duckdb> (get-config-options)
           _ (check-error app-status)
           n-rows (ds/row-count dataset)
           n-cols (ds/column-count dataset)
-          colvec (ds/columns dataset)
+          colvec (mapv dt/->buffer (ds/columns dataset))
           dtypes (mapv (comp packing/unpack-datatype dt/elemwise-datatype) colvec)
-          missing (mapv ds/missing colvec)
-          rdr-vec (mapv dt/->reader colvec)]
-      (dotimes [row n-rows]
-        (dotimes [col n-cols]
-          (let [coldata (rdr-vec col)]
-            (->
-             (if (.contains ^RoaringBitmap (missing col) row)
-               (duckdb-ffi/duckdb_append_null appender)
-               (case (dtypes col)
-                 :boolean (duckdb-ffi/duckdb_append_bool appender (unchecked-byte (if (coldata row) 1 0)))
-                 :int8  (duckdb-ffi/duckdb_append_int8 appender (unchecked-byte (coldata row)))
-                 :uint8 (duckdb-ffi/duckdb_append_uint8 appender (unchecked-byte (coldata row)))
-                 :int16 (duckdb-ffi/duckdb_append_int16 appender (unchecked-short (coldata row)))
-                 :uint16 (duckdb-ffi/duckdb_append_uint16 appender (unchecked-short (coldata row)))
-                 :int32 (duckdb-ffi/duckdb_append_int32 appender (unchecked-int (coldata row)))
-                 :uint32 (duckdb-ffi/duckdb_append_uint32 appender (unchecked-int (coldata row)))
-                 :int64 (duckdb-ffi/duckdb_append_int64 appender (unchecked-long (coldata row)))
-                 :uint64 (duckdb-ffi/duckdb_append_uint64 appender (unchecked-long (coldata row)))
-                 :float32 (duckdb-ffi/duckdb_append_float appender (float (coldata row)))
-                 :float64 (duckdb-ffi/duckdb_append_double appender (double (coldata row)))
-                 :local-date (duckdb-ffi/duckdb_append_date appender (-> (coldata row)
-                                                                         (dt-datetime/local-date->days-since-epoch)))
-                 :local-time (duckdb-ffi/duckdb_append_time appender
-                                                            (-> (coldata row)
-                                                                local-time->microseconds))
-                 :instant (duckdb-ffi/duckdb_append_timestamp appender (-> (coldata row)
-                                                                           (dt-datetime/instant->microseconds-since-epoch)))
-                 :string (duckdb-ffi/duckdb_append_varchar appender (str (coldata row)))))
-             (check-error))))
-        (check-error (duckdb-ffi/duckdb_appender_end_row appender))))))
+          duckdb-type-ids (mapv dtype-type->duckdb dtypes)
+          chunk-size (duckdb-ffi/duckdb_vector_size)
+          n-chunks (quot (+ n-rows (dec chunk-size)) chunk-size)
+          logical-types (dt-struct/new-array-of-structs :duckdb-logical-type n-cols
+                                                        {:container-type :native-heap
+                                                         :resource-type :stack})
+          _ (dotimes [cidx n-cols]
+              (map->struct! (duckdb-ffi/duckdb_create_logical_type
+                             (duckdb-type-ids cidx))
+                            (logical-types cidx)))
+          write-chunk (duckdb-ffi/duckdb_create_data_chunk logical-types n-cols)
+          wrap-addr #(native-buffer/wrap-address %1 %2 %3 (tech.v3.datatype.protocols/platform-endianness) nil)]
+      (try
+        (dotimes [chunk n-chunks]
+          ;;stack resource context is mainly for the string values.
+          (resource/stack-resource-context
+           (let [row-offset (* chunk chunk-size)
+                 row-count (rem n-rows chunk-size)
+                 n-valid (quot (+ row-count 63) 64)]
+             (duckdb-ffi/duckdb_data_chunk_set_size write-chunk row-count)
+             (dotimes [col n-cols]
+               (let [dvec (duckdb-ffi/duckdb_data_chunk_get_vector write-chunk)
+                     daddr (ptr->addr dvec)
+                     validity-data (-> (duckdb-ffi/duckdb_vector_get_validity dvec)
+                                       (ptr->addr)
+                                       (native-buffer/wrap-address (* n-valid 8))
+                                       (native-buffer/set-native-datatype :int64)
+                                       (dt/->buffer))
+                     subcol (dt/sub-buffer (colvec col) row-offset row-count)
+                     missing (ds/missing subcol)
+                     missing-card (dt/ecount missing)
+                     col-dt (dtypes col)]
+                 ;;Fill out missing data
+                 (cond
+                   (== missing-card row-count)
+                   (dt/set-constant! validity-data 0)
+                   (== missing-card 0)
+                   (dt/set-constant! validity-data -1)
+                   :else
+                   (do
+                     (dt/set-constant! validity-data -1)
+                     (let [miter (.getIntIterator ^RoaringBitmap missing)]
+                       (loop [continue? (.hasNext miter)]
+                         (when continue?
+                           (let [ne (-> (.next miter)
+                                        (Integer/toUnsignedLong))
+                                 vidx (quot ne 64)
+                                 cv (.readLong validity-data vidx)
+                                 bit-idx (rem ne 64)]
+                             (.writeLong validity-data vidx (bit-and-not cv (bit-shift-left 1 bit-idx)))
+                             (recur (.hasNext miter))))))))
+                 (case col-dt
+                   (:int8 :uint8 :boolean) (dt/copy! subcol (wrap-addr daddr row-count (if (= :uint8 col-dt)
+                                                                                        :uint8
+                                                                                        :int8)))
+                   (:int16 :uint16) (dt/copy! subcol (wrap-addr daddr (* 2 row-count) col-dt))
+                   (:int32 :uint32 :float32) (dt/copy! subcol (wrap-addr daddr (* 4 row-count) col-dt))
+                   (:int64 :uint64 :float64) (dt/copy! subcol (wrap-addr daddr (* 8 row-count) col-dt))
+                   (:local-date :packed-local-date) (dt/copy! (if (= col-dt :local-date)
+                                                                (packing/pack subcol)
+                                                                subcol)
+                                                              (wrap-addr daddr (* 4 row-count) :int32))
+                   (:local-time :packed-local-time) (dt/copy! (if (= col-dt :local-time)
+                                                                (packing/pack subcol)
+                                                                subcol)
+                                                              (wrap-addr daddr (* 8 row-count) :int64))
+                   (:instant :packed-instant) (dt/copy! (if (= col-dt :instant)
+                                                          (packing/pack subcol)
+                                                          subcol)
+                                                        (wrap-addr daddr (* 8 row-count) :int64))
+                   (:string :text)
+                   (let [stable (hamf/java-hashmap)
+                         nbuf (wrap-addr daddr (* 16 row-count) :int8)]
+                     (dotimes [idx row-count]
+                       (let [sval (str (subcol idx))]
+                         (if-let [init-addr (.get stable sval)]
+                           (dt/copy! (wrap-addr init-addr 16 :uint8)
+                                     (dt/sub-buffer nbuf (* 16 idx) 16))
+                           (let [bval (.getBytes sval)
+                                 slen (alength bval)
+                                 bufoff (* 16 idx)]
+                             (.put stable sval bufoff)
+                             (native-buffer/write-int nbuf bufoff slen)
+                             (if (<= slen 12)
+                               (let [bufoff (+ bufoff 4)]
+                                 (dt/copy! bval (dt/sub-buffer nbuf bufoff slen)))
+                               (let [bufoff (+ bufoff 8)
+                                     valbuf (native-buffer/malloc slen {:resource-type :stack})
+                                     bufaddr (ptr->addr valbuf)]
+                                 (dt/copy! bval valbuf)
+                                 (native-buffer/write-long nbuf bufoff bufaddr)))))))))))
+             (check-error (duckdb-ffi/duckdb_append_data_chunk appender write-chunk)))))
+        (finally
+          (duckdb-ffi/duckdb_destroy_data_chunk write-chunk)
+          (dotimes [cidx n-cols]
+            (duckdb-ffi/duckdb_destroy_logical_type (logical-types cidx)))
+          (duckdb-ffi/duckdb_appender_destroy appender))))))
   ([conn dataset] (insert-dataset! conn dataset nil)))
 
 
@@ -326,7 +432,7 @@ tmducken.duckdb> (get-config-options)
           rval (bitmap/->bitmap)]
       (dotimes [idx nvals]
         (let [lval (.readLong dvec idx)]
-          (when-not (== lval Long/MAX_VALUE)
+          (when-not (== lval -1)
             (let [logical-idx (* idx 64)]
               (loop [bit-idx 0]
                 (when (< bit-idx 64)
@@ -424,16 +530,6 @@ tmducken.duckdb> (get-config-options)
              (String. (dt/->byte-array (native-buffer/wrap-address ptr-addr slen))))))))
     (throw (RuntimeException. (format "Failed to get a valid column type for integer type %d" duckdb-type)))))
 
-
-(defn- map->struct
-  [dtype data track-type]
-  (let [rv (dt-struct/new-struct dtype {:container-type :native-heap
-                                        :resource-type track-type})]
-    (reduce (fn [acc e]
-              (.put ^Map rv (key e) (val e)))
-            false
-            data)
-    rv))
 
 
 (defn- results->datasets
