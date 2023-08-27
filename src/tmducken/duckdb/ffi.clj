@@ -28,6 +28,28 @@
 (def ^{:tag 'long} DUCKDB_TYPE_HUGEINT 16)
 (def ^{:tag 'long} DUCKDB_TYPE_VARCHAR 17)
 (def ^{:tag 'long} DUCKDB_TYPE_BLOB 18)
+;; decimal
+(def ^{:tag 'long} DUCKDB_TYPE_DECIMAL 19)
+;; duckdb_timestamp, in seconds
+(def ^{:tag 'long} DUCKDB_TYPE_TIMESTAMP_S 20)
+;; duckdb_timestamp, in milliseconds
+(def ^{:tag 'long} DUCKDB_TYPE_TIMESTAMP_MS 21)
+;; duckdb_timestamp, in nanoseconds
+(def ^{:tag 'long} DUCKDB_TYPE_TIMESTAMP_NS 22)
+ ;; enum type, only useful as logical type
+(def ^{:tag 'long} DUCKDB_TYPE_ENUM 23)
+;; list type, only useful as logical type
+(def ^{:tag 'long} DUCKDB_TYPE_LIST 24)
+;; struct type, only useful as logical type
+(def ^{:tag 'long} DUCKDB_TYPE_STRUCT 25)
+;; map type, only useful as logical type
+(def ^{:tag 'long} DUCKDB_TYPE_MAP 26)
+;; duckdb_hugeint
+(def ^{:tag 'long} DUCKDB_TYPE_UUID 27)
+;; union type, only useful as logical type
+(def ^{:tag 'long} DUCKDB_TYPE_UNION 28)
+;; duckdb_bit
+(def ^{:tag 'long} DUCKDB_TYPE_BIT 29)
 
 
 (def duckdb-type-map
@@ -49,7 +71,19 @@
    DUCKDB_TYPE_INTERVAL :DUCKDB_TYPE_INTERVAL
    DUCKDB_TYPE_HUGEINT :DUCKDB_TYPE_HUGEINT
    DUCKDB_TYPE_VARCHAR :DUCKDB_TYPE_VARCHAR
-   DUCKDB_TYPE_BLOB :DUCKDB_TYPE_BLOB})
+   DUCKDB_TYPE_BLOB :DUCKDB_TYPE_BLOB
+   DUCKDB_TYPE_DECIMAL :DUCKDB_TYPE_DECIMAL
+   DUCKDB_TYPE_TIMESTAMP_S :DUCKDB_TYPE_TIMESTAMP_S
+   DUCKDB_TYPE_TIMESTAMP_MS :DUCKDB_TYPE_TIMESTAMP_MS
+   DUCKDB_TYPE_TIMESTAMP_NS :DUCKDB_TYPE_TIMESTAMP_NS
+   DUCKDB_TYPE_ENUM :DUCKDB_TYPE_ENUM
+   DUCKDB_TYPE_LIST :DUCKDB_TYPE_LIST
+   DUCKDB_TYPE_STRUCT :DUCKDB_TYPE_STRUCT
+   DUCKDB_TYPE_MAP :DUCKDB_TYPE_MAP
+   DUCKDB_TYPE_UUID :DUCKDB_TYPE_UUID
+   DUCKDB_TYPE_UNION :DUCKDB_TYPE_UNION
+   DUCKDB_TYPE_BIT :DUCKDB_TYPE_BIT }
+  )
 
 (def ^{:tag 'long} DuckDBSuccess 0)
 (def ^{:tag 'long} DuckDBError 1)
@@ -152,6 +186,9 @@ This can fail if either the name is invalid, or if the value provided for the op
 
 * config: The configuration object to destroy."}
 
+    ;;DUCKDB_API idx_t duckdb_vector_size();
+    :duckdb_vector_size {:rettype :int64}
+
 
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
     ;; Generic bulk data upload - the appender interface
@@ -175,7 +212,7 @@ This can fail if either the name is invalid, or if the value provided for the op
                                         [schema :string]
                                         [table :string]
                                         [out_appender :pointer]]}
-    :duckdb_appender_error {:rettype :string
+    :duckdb_appender_error {:rettype :pointer?
                             :argtypes [[appender :pointer]]
                             :doc "Returns the error message associated with the given appender.
 If the appender has no error message, this returns `nullptr` instead.
@@ -191,6 +228,12 @@ all memory associated with the appender.
 
 * appender: The appender to flush, close and destroy.
 * returns: `DuckDBSuccess` on success or `DuckDBError` on failure."}
+
+
+    ;;DUCKDB_API duckdb_state duckdb_append_data_chunk(duckdb_appender appender, duckdb_data_chunk chunk);
+    :duckdb_append_data_chunk {:rettype :int32
+                               :argtypes [[appender (by-value :duckdb-appender)]
+                                          [data-chunk (by-value :duckdb-data-chunk)]]}
 
     :duckdb_appender_end_row {:rettype :int32
                               :argtypes [[appender :pointer]]
@@ -285,7 +328,7 @@ all memory associated with the appender.
                             :argtypes [[result :pointer]]}
 
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    ;; Column functions
+    ;; Legacy column functions
     :duckdb_column_name {:rettype :pointer
                          :argtypes [[result :pointer]
                                     [col :int64]]}
@@ -299,6 +342,87 @@ all memory associated with the appender.
                          :argtypes [[result :pointer]
                                     [col :int64]]}
 
+
+    ;;DUCKDB_API bool duckdb_result_is_streaming(duckdb_result result);
+    :duckdb_result_is_streaming {:rettype :int8
+                                 :argtypes [[result (by-value :duckdb-result)]]}
+
+    ;;DUCKDB_API duckdb_logical_type duckdb_column_logical_type(duckdb_result *result, idx_t col);
+    :duckdb_column_logical_type {:rettype (by-value :duckdb-logical-type)
+                                 :argtypes [[result :pointer]
+                                            [cidx :int64]]}
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;; Data Chunks - new API
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+    ;; DUCKDB_API idx_t duckdb_result_chunk_count(duckdb_result result);
+    :duckdb_result_chunk_count {:rettype :int64
+                                :argtypes [[result (by-value :duckdb-result)]]}
+
+    ;;DUCKDB_API duckdb_data_chunk duckdb_result_get_chunk(duckdb_result result, idx_t chunk_index);
+    :duckdb_result_get_chunk {:rettype (by-value :duckdb-data-chunk)
+                              :argtypes [[result (by-value :duckdb-result)]
+                                         [chunk-index :int64]]}
+
+    ;;DUCKDB_API duckdb_data_chunk duckdb_create_data_chunk(duckdb_logical_type *types, idx_t column_count);
+    :duckdb_create_data_chunk {:rettype (by-value :duckdb-data-chunk)
+                               :argtypes [[types :pointer]
+                                          [column-count :int64]]}
+
+    ;;DUCKDB_API void duckdb_destroy_data_chunk(duckdb_data_chunk *chunk);
+    :duckdb_destroy_data_chunk {:rettype :void
+                                :argtypes [[chunk :pointer]]} ;;ptr-to-chunk
+    ;;DUCKDB_API idx_t duckdb_data_chunk_get_column_count(duckdb_data_chunk chunk);
+    :duckdb_data_chunk_get_column_count {:rettype :int64
+                                         :argtypes [[chunk (by-value :duckdb-data-chunk)]]}
+
+    ;;DUCKDB_API idx_t duckdb_data_chunk_get_size(duckdb_data_chunk chunk);
+    :duckdb_data_chunk_get_size {:rettype :int64
+                                 :argtypes [[chunk (by-value :duckdb-data-chunk)]]}
+
+    ;;DUCKDB_API duckdb_vector duckdb_data_chunk_get_vector(duckdb_data_chunk chunk, idx_t col_idx);
+    :duckdb_data_chunk_get_vector {:rettype (by-value :duckdb-vector)
+                                   :argtypes [[chunk (by-value :duckdb-data-chunk)]
+                                              [col-idx :int64]]}
+
+    ;;DUCKDB_API duckdb_logical_type duckdb_vector_get_column_type(duckdb_vector vector)
+    :duckdb_vector_get_column_type {:rettype (by-value :duckdb-logical-type)
+                                    :argtypes [[vector (by-value :duckdb-vector)]]}
+
+    ;;DUCKDB_API void *duckdb_vector_get_data(duckdb_vector vector)
+    :duckdb_vector_get_data {:rettype :pointer
+                             :argtypes [[vector (by-value :duckdb-vector)]]}
+
+    ;;DUCKDB_API uint64_t *duckdb_vector_get_validity(duckdb_vector vector)
+    :duckdb_vector_get_validity {:rettype :pointer
+                                 :argtypes [[vector (by-value :duckdb-vector)]]}
+
+    ;;DUCKDB_API void duckdb_vector_ensure_validity_writable(duckdb_vector vector);
+    :duckdb_vector_ensure_validity_writable {:rettype :void
+                                             :argtypes [[vector (by-value :duckdb-vector)]]}
+
+
+    ;;DUCKDB_API duckdb_logical_type duckdb_create_logical_type(duckdb_type type);
+    :duckdb_create_logical_type {:rettype (by-value :duckdb-logical-type)
+                                 :argtypes [[duckdb_type :int32]]}
+
+    ;;DUCKDB_API void duckdb_destroy_logical_type(duckdb_logical_type *type);
+    :duckdb_destroy_logical_type {:rettype :void
+                                  :argtypes [[type :pointer]]}
+
+    ;;DUCKDB_API duckdb_type duckdb_get_type_id(duckdb_logical_type type);
+    :duckdb_get_type_id {:rettype :int32
+                         :argtypes [[type (by-value :duckdb-logical-type)]]}
+
+    ;;DUCKDB_API void duckdb_data_chunk_reset(duckdb_data_chunk chunk);
+    :duckdb_data_chunk_reset {:rettype :void
+                              :argtypes [[chunk (by-value :duckdb-data-chunk)]]}
+
+    ;;DUCKDB_API void duckdb_data_chunk_set_size(duckdb_data_chunk chunk, idx_t size);
+    :duckdb_data_chunk_set_size {:rettype :void
+                                 :argtypes [[chunk (by-value :duckdb-data-chunk)]
+                                            [size :int64]]}
 
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
     ;; Prepared Statements
@@ -353,48 +477,82 @@ all memory associated with the appender.
 ;; } duckdb_column;
 
 ;; These definitions are delayed so same jar will work on both 32-bit and 64-bit systems.
-(def ptr-dtype* (delay (ffi-size-t/ptr-t-type)))
+(defonce ptr-dtype* (delay (ffi-size-t/ptr-t-type)))
 
 
-(def blob-def* (delay (dt-struct/define-datatype! :duckdb-blob
-                        [{:name :data
-                          :datatype @ptr-dtype*}
-                         {:name :size
-                          :datatype :uint64}])))
+(defonce blob-def* (delay (dt-struct/define-datatype! :duckdb-blob
+                            [{:name :data
+                              :datatype @ptr-dtype*}
+                             {:name :size
+                              :datatype :uint64}])))
 
 
-(def column-def* (delay (dt-struct/define-datatype! :duckdb-column
-                          [{:name :data
-                            :datatype @ptr-dtype*}
-                           {:name :nullmask
-                            :datatype @ptr-dtype*}
-                           ;;duckdb-type
-                           {:name :type
-                            :datatype :int32}
-                           {:name :name
-                            :datatype @ptr-dtype*}
-                           {:name :internal_data
-                            :datatype @ptr-dtype*}])))
+(defonce column-def* (delay (dt-struct/define-datatype! :duckdb-column
+                              [{:name :data
+                                :datatype @ptr-dtype*}
+                               {:name :nullmask
+                                :datatype @ptr-dtype*}
+                               ;;duckdb-type
+                               {:name :type
+                                :datatype :int32}
+                               {:name :name
+                                :datatype @ptr-dtype*}
+                               {:name :internal_data
+                                :datatype @ptr-dtype*}])))
 
 
-(def result-def* (delay
-                   (dt-struct/define-datatype! :duckdb-result
-                     [{:name :column-count
-                       :datatype :uint64}
-                      {:name :row-count
-                       :datatype :uint64}
-                      {:name :rows-changed
-                       :datatype :uint64}
-                      {:name :columns
-                       :datatype @ptr-dtype*}
-                      {:name :error-message
-                       :datatype @ptr-dtype*}
-                      {:name :internal-data
-                       :datatype @ptr-dtype*}])))
+(defonce result-def* (delay
+                       (dt-struct/define-datatype! :duckdb-result
+                         [{:name :column-count
+                           :datatype :uint64}
+                          {:name :row-count
+                           :datatype :uint64}
+                          {:name :rows-changed
+                           :datatype :uint64}
+                          {:name :columns
+                           :datatype @ptr-dtype*}
+                          {:name :error-message
+                           :datatype @ptr-dtype*}
+                          {:name :internal-data
+                           :datatype @ptr-dtype*}])))
+
+
+
+(defonce logical-type-def*
+  (delay
+    (dt-struct/define-datatype! :duckdb-logical-type
+      [{:name :__lglt
+        :datatype @ptr-dtype*}])))
+
+
+(defonce data-chunk-def*
+  (delay
+    (dt-struct/define-datatype! :duckdb-data-chunk
+      [{:name :__dtck
+        :datatype @ptr-dtype*}])))
+
+
+(defonce vector-def*
+  (delay
+    (dt-struct/define-datatype! :duckdb-vector
+      [{:name :__vec
+        :datatype @ptr-dtype*}])))
+
+
+(defonce appender-def*
+  (delay
+    (dt-struct/define-datatype! :duckdb-appender
+      [{:name :__appn
+        :datatype @ptr-dtype*}])))
+
 
 
 (defn define-datatypes!
   []
   @blob-def*
   @column-def*
-  @result-def*)
+  @result-def*
+  @logical-type-def*
+  @data-chunk-def*
+  @vector-def*
+  @appender-def*)
