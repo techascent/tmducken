@@ -60,7 +60,7 @@ _unnamed [5 3]:
             [ham-fisted.lazy-noncaching :as lznc]
             [clojure.tools.logging :as log])
   (:import [java.nio.file Paths]
-           [java.util Map Iterator]
+           [java.util Map Iterator ArrayList]
            [java.time LocalDate LocalTime]
            [tech.v3.datatype.ffi Pointer]
            [ham_fisted ITypedReduce]
@@ -333,12 +333,19 @@ tmducken.duckdb> (get-config-options)
           (resource/stack-resource-context
            (let [row-offset (* chunk chunk-size)
                  row-count (rem n-rows chunk-size)
-                 n-valid (quot (+ row-count 63) 64)]
+                 n-valid (quot (+ row-count 63) 64)
+                 string-allocs (ArrayList.)]
+             ;;String are tracked in bulk to ease the burden on the resource system.
+             (resource/track string-allocs
+                             {:track-type :stack
+                              :dispose-fn #(.forEach string-allocs
+                                                     (reify java.util.function.Consumer
+                                                       (accept [this data]
+                                                         (native-buffer/free data))))})
              (duckdb-ffi/duckdb_data_chunk_set_size write-chunk row-count)
              (dotimes [col n-cols]
                (let [dvec (duckdb-ffi/duckdb_data_chunk_get_vector write-chunk col)
-                     _ (when (== 0 chunk)
-                         (duckdb-ffi/duckdb_vector_ensure_validity_writable dvec))
+                     _ (duckdb-ffi/duckdb_vector_ensure_validity_writable dvec)
                      daddr (ptr->addr (duckdb-ffi/duckdb_vector_get_data dvec))
                      validity-data (-> (duckdb-ffi/duckdb_vector_get_validity dvec)
                                        (ptr->addr)
@@ -405,7 +412,9 @@ tmducken.duckdb> (get-config-options)
                                (let [bufoff (+ bufoff 4)]
                                  (dt/copy! bval (dt/sub-buffer nbuf bufoff slen)))
                                (let [bufoff (+ bufoff 8)
-                                     valbuf (native-buffer/malloc slen {:resource-type :stack})
+                                     valbuf (native-buffer/malloc slen {:resource-type nil
+                                                                        :uninitialized? true})
+                                     _ (.add string-allocs valbuf)
                                      bufaddr (ptr->addr valbuf)]
                                  (dt/copy! bval valbuf)
                                  (native-buffer/write-long nbuf bufoff bufaddr)))))))))))
