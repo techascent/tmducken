@@ -281,19 +281,6 @@ tmducken.duckdb> (get-config-options)
     :string duckdb-ffi/DUCKDB_TYPE_VARCHAR))
 
 
-(defn- map->struct!
-  [data rv]
-  (reduce (fn [acc e]
-            (.put ^Map rv (key e) (val e)))
-          false
-          data)
-  rv)
-
-(defn- map->struct
-  [dtype data track-type]
-  (map->struct! data (dt-struct/new-struct dtype {:container-type :native-heap
-                                                  :resource-type track-type})))
-
 (defn- ptr->addr
   ^long [ptr]
   (.address (dt-ffi/->pointer ptr)))
@@ -329,12 +316,16 @@ tmducken.duckdb> (get-config-options)
           logical-types (dt-struct/new-array-of-structs :duckdb-logical-type n-cols
                                                         {:container-type :native-heap
                                                          :resource-type :stack})
-          _ (dotimes [cidx n-cols]
-              (map->struct! (duckdb-ffi/duckdb_create_logical_type
-                             (duckdb-type-ids cidx))
-                            (logical-types cidx)))
+          _ (resource/stack-resource-context
+             (dotimes [cidx n-cols]
+               (dt-struct/map->struct! (duckdb-ffi/duckdb_create_logical_type
+                                        (duckdb-type-ids cidx))
+                                       (logical-types cidx))))
           write-chunk (duckdb-ffi/duckdb_create_data_chunk logical-types n-cols)
-          wrap-addr #(native-buffer/wrap-address %1 %2 %3 (tech.v3.datatype.protocols/platform-endianness) nil)]
+          wrap-addr #(native-buffer/wrap-address
+                      %1 %2 %3
+                      (tech.v3.datatype.protocols/platform-endianness)
+                      nil)]
       (try
         (dotimes [chunk n-chunks]
           ;;stack resource context is mainly for the string values.
@@ -420,7 +411,7 @@ tmducken.duckdb> (get-config-options)
              (check-error (duckdb-ffi/duckdb_append_data_chunk appender write-chunk))
              (duckdb-ffi/duckdb_data_chunk_reset write-chunk))))
         (finally
-          (duckdb-ffi/duckdb_destroy_data_chunk (map->struct :duckdb-data-chunk write-chunk :stack))
+          (duckdb-ffi/duckdb_destroy_data_chunk write-chunk)
           (dotimes [cidx n-cols]
             (duckdb-ffi/duckdb_destroy_logical_type (logical-types cidx))))))))
   ([conn dataset] (insert-dataset! conn dataset nil)))
@@ -573,7 +564,7 @@ tmducken.duckdb> (get-config-options)
         types (hamf/mapv #(let [db-type (duckdb-ffi/duckdb_column_logical_type duckdb-result %)
                                 ;;complex work-around so we have a pointer to release as the destroy fn takes
                                 ;;a ptr and not the thing by copying.
-                                type-ptr (map->struct :duckdb-logical-type db-type :auto)]
+                                type-ptr (dt-ffi/->pointer db-type)]
                             (resource/track db-type {:track-type :auto
                                                      :dispose-fn (fn [] (duckdb-ffi/duckdb_destroy_logical_type type-ptr))})
                             db-type)
@@ -600,7 +591,7 @@ tmducken.duckdb> (get-config-options)
            (supplier-map
             (fn [^long cidx]
               (let [chunk (duckdb-ffi/duckdb_result_get_chunk duckdb-result cidx)
-                    chunk-ptr (map->struct :duckdb-data-chunk chunk :auto)]
+                    chunk-ptr (dt-ffi/->pointer chunk)]
                 (-> (resource/track chunk {:track-type :auto
                                            :dispose-fn #(duckdb-ffi/duckdb_destroy_data_chunk chunk-ptr)})
                     (realize-chunk))))))
