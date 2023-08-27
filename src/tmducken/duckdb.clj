@@ -29,10 +29,10 @@ user> (def conn (duckdb/connect db))
 #'user/conn
 user> (duckdb/create-table! conn stocks)
 \"stocks\"
-user> (duckdb/append-dataset! conn stocks)
+  user> (duckdb/insert-dataset! conn stocks)
 nil
-user> (ds/head (duckdb/execute-query! conn \"select * from stocks\"))
-10:05:28.356 [tech.resource.gc ref thread] INFO tech.v3.resource.gc - Reference thread starting
+  user> (ds/head (duckdb/sql->dataset conn \"select * from stocks\"))
+
 _unnamed [5 3]:
 
 | symbol |       date | price |
@@ -63,6 +63,7 @@ _unnamed [5 3]:
            [java.util Map Iterator]
            [java.time LocalDate LocalTime]
            [tech.v3.datatype.ffi Pointer]
+           [ham_fisted ITypedReduce]
            [org.roaringbitmap RoaringBitmap]
            [clojure.lang Seqable IReduceInit]))
 
@@ -521,10 +522,10 @@ tmducken.duckdb> (get-config-options)
          #_(println "reading string at idx" idx len-off slen)
          (if (<= slen inline-len)
            (let [soff (+ len-off 4)]
-             (String. (dt/->byte-array (dt/sub-buffer nbuf soff slen))))
+             (String. (hamf/byte-array (dt/sub-buffer nbuf soff slen))))
            (let [ptr-off (+ len-off 8)
                  ptr-addr (native-buffer/read-long nbuf ptr-off)]
-             (String. (dt/->byte-array (native-buffer/wrap-address ptr-addr slen nil))))))))
+             (String. (hamf/byte-array (native-buffer/wrap-address ptr-addr slen nil))))))))
     (throw (RuntimeException. (format "Failed to get a valid column type for integer type %d" duckdb-type)))))
 
 
@@ -534,27 +535,35 @@ tmducken.duckdb> (get-config-options)
     (cons item (lazy-seq (supplier-seq s)))))
 
 
-(deftype MappingSupplier [map-fn ^Iterator src-iter]
+(deftype MappingSupplier [map-fn ^Iterator src-iter immediate-release?]
   java.util.function.Supplier
   (get [this]
     (when (.hasNext src-iter)
       (map-fn (.next src-iter))))
   Seqable
   (seq [this] (supplier-seq this))
-  IReduceInit
+  ITypedReduce
   (reduce [this rfn acc]
     (let [iter src-iter]
-      (loop [continue? (.hasNext iter)
-             acc acc]
-        (if (and continue? (not (reduced? acc)))
-          (let [acc (rfn acc (map-fn (.next iter)))]
-            (recur (.hasNext src-iter) acc))
-          (if (reduced? acc) @acc acc))))))
+      (if immediate-release?
+        (loop [continue? (.hasNext iter)
+               acc acc]
+          (if (and continue? (not (reduced? acc)))
+            (let [acc (resource/stack-resource-context (rfn acc (map-fn (.next iter))))]
+              (recur (.hasNext src-iter) acc))
+            (if (reduced? acc) @acc acc)))
+        (loop [continue? (.hasNext iter)
+               acc acc]
+          (if (and continue? (not (reduced? acc)))
+            (let [acc (rfn acc (map-fn (.next iter)))]
+              (recur (.hasNext src-iter) acc))
+            (if (reduced? acc) @acc acc)))))))
 
 
 (defn- supplier-map
-  [map-fn iable]
-  (MappingSupplier. map-fn (.iterator ^Iterable iable)))
+  [options map-fn iable]
+  (MappingSupplier. map-fn (.iterator ^Iterable iable) (get options :immediate-release?)))
+
 
 (defn- results->datasets
   [duckdb-result options]
@@ -589,6 +598,7 @@ tmducken.duckdb> (get-config-options)
     (if (== 0 (long (duckdb-ffi/duckdb_result_is_streaming duckdb-result)))
       (->> (hamf/range (duckdb-ffi/duckdb_result_chunk_count duckdb-result))
            (supplier-map
+            options
             (fn [^long cidx]
               (let [chunk (duckdb-ffi/duckdb_result_get_chunk duckdb-result cidx)
                     chunk-ptr (dt-ffi/->pointer chunk)]
@@ -604,7 +614,17 @@ tmducken.duckdb> (get-config-options)
   the data immediately wrap call in `tech.v3.resource/stack-resource-context` and clone
   each result.
 
-  Example:
+
+Options:
+
+  * `:immediate-release?` - defaults to false - When true the return value supports efficient
+  reduction with the caveat the the datasets passed
+  into the reduction are released immediately after the reduction fn returns.  This allows
+  us to directly `reduce` very large result sets *but* it means that you cannot
+  **ever let a non-cloned dataset out of the reduction context**.
+
+
+Example:
 
 
 ```clojure
@@ -653,7 +673,7 @@ _unnamed [5 3]:
   for the result set before function returns returning a dataset that has no native bindings."
   ([conn sql options]
    (resource/stack-resource-context
-    (let [dsdata (vec (sql->datasets conn sql options))]
+    (let [dsdata (vec (sql->datasets conn sql (assoc options :immediate-release? false)))]
       (if (== 1 (count dsdata))
         ;;ensure things get cloned into jvm heap.
         (dt/clone (dsdata 0))
