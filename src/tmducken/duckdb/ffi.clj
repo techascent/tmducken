@@ -235,82 +235,6 @@ all memory associated with the appender.
                                :argtypes [[appender (by-value :duckdb-appender)]
                                           [data-chunk (by-value :duckdb-data-chunk)]]}
 
-    :duckdb_appender_end_row {:rettype :int32
-                              :argtypes [[appender :pointer]]
-                              :doc "End the current row."}
-
-    :duckdb_append_bool {:rettype :int32
-                         :argtypes [[appender :pointer]
-                                    [value :int8]]}
-
-    :duckdb_append_int8 {:rettype :int32
-                         :argtypes [[appender :pointer]
-                                    [value :int8]]}
-    :duckdb_append_int16 {:rettype :int32
-                          :argtypes [[appender :pointer]
-                                     [value :int16]]}
-    :duckdb_append_int32 {:rettype :int32
-                          :argtypes [[appender :pointer]
-                                     [value :int32]]}
-    :duckdb_append_int64 {:rettype :int32
-                          :argtypes [[appender :pointer]
-                                     [value :int64]]}
-
-    ;; potentially can't work without pass-by-value support.
-    :duckdb_append_hugeint {:rettype :int32
-                            :argtypes [[appender :pointer]
-                                       [lower :int64]
-                                       [upper :int64]]}
-    :duckdb_append_uint8 {:rettype :int32
-                          :argtypes [[appender :pointer]
-                                     [value :int8]]}
-    :duckdb_append_uint16 {:rettype :int32
-                           :argtypes [[appender :pointer]
-                                      [value :int16]]}
-    :duckdb_append_uint32 {:rettype :int32
-                           :argtypes [[appender :pointer]
-                                      [value :int32]]}
-    :duckdb_append_uint64 {:rettype :int32
-                           :argtypes [[appender :pointer]
-                                      [value :int64]]}
-    :duckdb_append_float {:rettype :int32
-                          :argtypes [[appender :pointer]
-                                     [value :float32]]}
-    :duckdb_append_double {:rettype :int32
-                           :argtypes [[appender :pointer]
-                                      [value :float64]]}
-    :duckdb_append_date {:rettype :int32
-                         :argtypes [[appender :pointer]
-                                    ;;epoch days
-                                    [value :int32]]}
-    :duckdb_append_time {:rettype :int32
-                         :argtypes [[appender :pointer]
-                                    ;;microseconds since 00:00:00
-                                    [value :int64]]}
-    :duckdb_append_timestamp {:rettype :int32
-                              :argtypes [[appender :pointer]
-                                         ;;microseconds since 2970-01-01
-                                         [value :int64]]}
-
-    ;; Not sure we can support this without pass-by-value support
-    ;; :duckdb_append_interval {:rettype :int32
-    ;;                          :argtypes [[appender :pointer]
-    ;;                                     [duckdb_interval value]]}
-
-    :duckdb_append_varchar {:rettype :int32
-                            :argtypes [[appender :pointer]
-                                       [value :string]]}
-    :duckdb_append_varchar_length {:rettype :int32
-                                   :argtypes [[appender :pointer]
-                                              [value :pointer]
-                                              [length :int64]]}
-    :duckdb_append_blob {:rettype :int32
-                         :argtypes [[appender :pointer]
-                                    [data :pointer]
-                                    [length :int64]]}
-    :duckdb_append_null {:rettype :int32
-                         :argtypes [[appender :pointer]]}
-
 
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
     ;; Query Execution
@@ -332,16 +256,9 @@ all memory associated with the appender.
     :duckdb_column_name {:rettype :pointer
                          :argtypes [[result :pointer]
                                     [col :int64]]}
-    :duckdb_nullmask_data {:rettype :pointer
-                           :argtypes [[result :pointer]
-                                      [col :int64]]}
     :duckdb_column_type {:rettype :int64
                          :argtypes [[result :pointer]
                                     [col :int64]]}
-    :duckdb_column_data {:rettype :pointer
-                         :argtypes [[result :pointer]
-                                    [col :int64]]}
-
 
     ;;DUCKDB_API bool duckdb_result_is_streaming(duckdb_result result);
     :duckdb_result_is_streaming {:rettype :int8
@@ -427,42 +344,6 @@ all memory associated with the appender.
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
     ;; Prepared Statements
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    ;; DUCKDB_API duckdb_state duckdb_prepare(duckdb_connection connection, const char *query,
-    ;;                                                          duckdb_prepared_statement *out_prepared_statement)
-    ;; DUCKDB_API void duckdb_destroy_prepare(duckdb_prepared_statement *prepared_statement)
-    ;; DUCKDB_API const char *duckdb_prepare_error(duckdb_prepared_statement prepared_statement)
-    ;; DUCKDB_API idx_t duckdb_nparams(duckdb_prepared_statement prepared_statement)
-    ;; DUCKDB_API duckdb_type duckdb_param_type(duckdb_prepared_statement prepared_statement, idx_t param_idx)
-    ;; DUCKDB_API duckdb_state duckdb_bind_boolean(duckdb_prepared_statement prepared_statement, idx_t param_idx, bool val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_int8(duckdb_prepared_statement prepared_statement, idx_t param_idx, int8_t val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_int16(duckdb_prepared_statement prepared_statement, idx_t param_idx, int16_t val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_int32(duckdb_prepared_statement prepared_statement, idx_t param_idx, int32_t val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_int64(duckdb_prepared_statement prepared_statement, idx_t param_idx, int64_t val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_hugeint(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-    ;;                                                                       duckdb_hugeint val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_uint8(duckdb_prepared_statement prepared_statement, idx_t param_idx, uint8_t val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_uint16(duckdb_prepared_statement prepared_statement, idx_t param_idx, uint16_t val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_uint32(duckdb_prepared_statement prepared_statement, idx_t param_idx, uint32_t val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_uint64(duckdb_prepared_statement prepared_statement, idx_t param_idx, uint64_t val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_float(duckdb_prepared_statement prepared_statement, idx_t param_idx, float val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_double(duckdb_prepared_statement prepared_statement, idx_t param_idx, double val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_date(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-    ;;                                                                    duckdb_date val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_time(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-    ;;                                                                    duckdb_time val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_timestamp(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-    ;;                                                                         duckdb_timestamp val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_interval(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-    ;;                                                                        duckdb_interval val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_varchar(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-    ;;                                                                       const char *val)
-    ;; DUCKDB_API duckdb_state duckdb_bind_varchar_length(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-    ;;                                                                              const char *val, idx_t length)
-    ;; DUCKDB_API duckdb_state duckdb_bind_blob(duckdb_prepared_statement prepared_statement, idx_t param_idx,
-    ;;                                                                    const void *data, idx_t length)
-    ;; DUCKDB_API duckdb_state duckdb_bind_null(duckdb_prepared_statement prepared_statement, idx_t param_idx)
-    ;; DUCKDB_API duckdb_state duckdb_execute_prepared(duckdb_prepared_statement prepared_statement,
-    ;;                                                                           duckdb_result *out_result)
     }
 
   nil
