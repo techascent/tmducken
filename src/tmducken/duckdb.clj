@@ -63,7 +63,8 @@ _unnamed [5 3]:
            [java.util Map Iterator ArrayList]
            [java.time LocalDate LocalTime]
            [tech.v3.datatype.ffi Pointer]
-           [ham_fisted ITypedReduce]
+           [ham_fisted ITypedReduce IFnDef$LO]
+           [tech.v3.datatype ObjectReader]
            [org.roaringbitmap RoaringBitmap]
            [clojure.lang Seqable IReduceInit]))
 
@@ -453,6 +454,37 @@ tmducken.duckdb> (get-config-options)
       rval)))
 
 
+(deftype ^:private StringReader [^IFnDef$LO accessor ^long sidx ^long eidx]
+  ObjectReader
+  (elemwiseDatatype [this] :string)
+  (lsize [this] (- eidx sidx))
+  (readObject [this idx] (.invokePrim accessor (+ sidx idx)))
+  (subBuffer [this ssidx seidx]
+    (if (and (== sidx ssidx)
+             (== eidx seidx))
+      this
+      (StringReader. accessor (+ ssidx sidx) (+ sidx seidx))))
+  (cloneList [this] (dt/clone this))
+  (reduce [this rfn acc]
+    (loop [idx sidx
+           acc acc]
+      (if (and (< idx eidx) (not (reduced? acc)))
+        (recur (unchecked-inc idx) (rfn acc (accessor idx)))
+        (if (reduced? acc) @acc acc))))
+  tech.v3.datatype.protocols/PClone
+  (clone [this]
+    (let [ne (- eidx sidx)
+          ^objects sdata (make-array String ne)]
+      (hamf/pgroups
+       ne
+       (fn [^long group-sidx group-eidx]
+         (let [group-ne (- group-eidx group-sidx)
+               group-sidx (+ group-sidx sidx)]
+           (dotimes [idx group-ne]
+             (let [lidx (+ idx group-sidx)]
+               (aset sdata lidx (.invokePrim accessor lidx)))))))
+      (hamf/wrap-array sdata))))
+
 (defn- coldata->buffer
   [^long n-rows ^long duckdb-type ^long data-ptr]
   (case (get duckdb-ffi/duckdb-type-map duckdb-type)
@@ -512,33 +544,35 @@ tmducken.duckdb> (get-config-options)
         (native-buffer/set-native-datatype :packed-instant))
 
     :DUCKDB_TYPE_VARCHAR
-;;     typedef struct {
-;; 	union {
-;; 		struct {
-;; 			uint32_t length;
-;; 			char prefix[4];
-;; 			char *ptr;
-;; 		} pointer;
-;; 		struct {
-;; 			uint32_t length;
-;; 			char inlined[12];
-;; 		} inlined;
-;; 	} value;
-;; } duckdb_string_t;
+    ;;     typedef struct {
+    ;; 	union {
+    ;; 		struct {
+    ;; 			uint32_t length;
+    ;; 			char prefix[4];
+    ;; 			char *ptr;
+    ;; 		} pointer;
+    ;; 		struct {
+    ;; 			uint32_t length;
+    ;; 			char inlined[12];
+    ;; 		} inlined;
+    ;; 	} value;
+    ;; } duckdb_string_t;
     (let [string-t-width 16
           inline-len 12
           nbuf (native-buffer/wrap-address data-ptr (* string-t-width n-rows) nil)]
-      (dt/make-reader
-       :string n-rows
-       (let [len-off (* idx string-t-width)
-             slen (native-buffer/read-int nbuf len-off)]
-         #_(println "reading string at idx" idx len-off slen)
-         (if (<= slen inline-len)
-           (let [soff (+ len-off 4)]
-             (String. (hamf/byte-array (dt/sub-buffer nbuf soff slen))))
-           (let [ptr-off (+ len-off 8)
-                 ptr-addr (native-buffer/read-long nbuf ptr-off)]
-             (String. (hamf/byte-array (native-buffer/wrap-address ptr-addr slen nil))))))))
+      (StringReader.
+       (reify IFnDef$LO
+         (invokePrim [this idx]
+           (let [len-off (* idx string-t-width)
+                 slen (native-buffer/read-int nbuf len-off)]
+             #_(println "reading string at idx" idx len-off slen)
+             (if (<= slen inline-len)
+               (let [soff (+ len-off 4)]
+                 (String. (hamf/byte-array (dt/sub-buffer nbuf soff slen))))
+               (let [ptr-off (+ len-off 8)
+                     ptr-addr (native-buffer/read-long nbuf ptr-off)]
+                 (String. (hamf/byte-array (native-buffer/wrap-address ptr-addr slen nil))))))))
+       0 n-rows))
     (throw (RuntimeException. (format "Failed to get a valid column type for integer type %d" duckdb-type)))))
 
 
