@@ -727,6 +727,23 @@ _unnamed [5 3]:
         (apply ds/concat dsdata)))))
   ([conn sql] (sql->dataset conn sql nil)))
 
+
+(defn create-prepared-statement
+  "Create a prepared statement returning a clojure function you can call taking args specified
+  in the prepared statement.
+.
+  The function can return value may be a sequence of datasets in the streaming
+  case or a single dataset.  The default is a sequence of datasets.  This function
+  has state that will be released using the resource system.
+
+  Options are passed through to dataset creation.
+
+  Options:
+  * `:return-type` - either `:streaming` or `:single` defaults to `:streaming`."
+  ([conn sql options])
+  ([conn sql]))
+
+
 (comment
   (do
     (def stocks
