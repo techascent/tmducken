@@ -924,7 +924,7 @@ _unnamed [5 3]:
                            (case result-type
                              :streaming res-data
                              :realized res-data
-                             :single (results->dataset res-data))))
+                             :single (datasets->dataset res-data))))
          n-params (long (duckdb-ffi/duckdb_nparams stmt))
          ;;Prepared statements have 1-based indexing (!!)
          param-types (mapv #(duckdb-ffi/duckdb_param_type stmt (+ 1 (long %))) (range n-params))]
