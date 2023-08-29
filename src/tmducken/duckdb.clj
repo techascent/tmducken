@@ -53,6 +53,8 @@ _unnamed [5 3]:
             [tech.v3.datatype.packing :as packing]
             [tech.v3.datatype.bitmap :as bitmap]
             [tech.v3.datatype.unary-pred :as unary-pred]
+            [tech.v3.datatype.datetime.base :as dt-dt-base]
+            [tech.v3.datatype.datetime.constants :as dt-dt-constants]
             [tech.v3.resource :as resource]
             [tech.v3.dataset :as ds]
             [tech.v3.dataset.sql :as sql]
@@ -61,9 +63,9 @@ _unnamed [5 3]:
             [clojure.tools.logging :as log])
   (:import [java.nio.file Paths]
            [java.util Map Iterator ArrayList]
-           [java.time LocalDate LocalTime]
+           [java.time LocalDate LocalTime Instant]
            [tech.v3.datatype.ffi Pointer]
-           [ham_fisted ITypedReduce IFnDef$LO]
+           [ham_fisted ITypedReduce IFnDef$LO Casts]
            [tech.v3.datatype ObjectReader]
            [org.roaringbitmap RoaringBitmap]
            [clojure.lang Seqable IReduceInit]))
@@ -728,20 +730,125 @@ _unnamed [5 3]:
   ([conn sql] (sql->dataset conn sql nil)))
 
 
-(defn create-prepared-statement
+(defn- bind-prepared-param
+  [stmt idx type-id v]
+  (let [errcode
+        (if (nil? v)
+          (duckdb-ffi/duckdb_bind_null stmt idx (if (Casts/booleanCast v) 1 0))
+          (case type-id
+            duckdb-ffi/DUCKDB_TYPE_BOOLEAN (duckdb-ffi/duckdb_bind_boolean stmt idx (if (Casts/booleanCast v) 1 0))
+            duckdb-ffi/DUCKDB_TYPE_TINYINT (duckdb-ffi/duckdb_bind_int8 stmt idx (Casts/longCast v))
+            duckdb-ffi/DUCKDB_TYPE_SMALLINT (duckdb-ffi/duckdb_bind_int16 stmt idx (Casts/longCast v))
+            duckdb-ffi/DUCKDB_TYPE_INTEGER (duckdb-ffi/duckdb_bind_int32 stmt idx (Casts/longCast v))
+            duckdb-ffi/DUCKDB_TYPE_BIGINT (duckdb-ffi/duckdb_bind_int64 stmt idx (Casts/longCast v))
+            duckdb-ffi/DUCKDB_TYPE_UTINYINT (duckdb-ffi/duckdb_bind_uint8 stmt idx (Casts/longCast v))
+            duckdb-ffi/DUCKDB_TYPE_USMALLINT (duckdb-ffi/duckdb_bind_uint16 stmt idx (Casts/longCast v))
+            duckdb-ffi/DUCKDB_TYPE_UINTEGER (duckdb-ffi/duckdb_bind_uint32 stmt idx (Casts/longCast v))
+            duckdb-ffi/DUCKDB_TYPE_UBIGINT (duckdb-ffi/duckdb_bind_uint64 stmt idx (Casts/longCast v))
+            duckdb-ffi/DUCKDB_TYPE_FLOAT (duckdb-ffi/duckdb_bind_float stmt idx (Casts/doubleCast v))
+            duckdb-ffi/DUCKDB_TYPE_DATE (duckdb-ffi/duckdb_bind_date stmt idx (if (number? v)
+                                                                                (Casts/longCast v)
+                                                                                (.toEpochDay ^LocalDate v)))
+            duckdb-ffi/DUCKDB_TYPE_TIME (duckdb-ffi/duckdb_bind_time
+                                         stmt idx (if (number? v)
+                                                    (Casts/longCast v)
+                                                    (quot (.toNanoOfDay ^LocalTime v)
+                                                          dt-dt-constants/nanoseconds-in-microsecond)))
+            duckdb-ffi/DUCKDB_TYPE_TIMESTAMP (duckdb-ffi/duckdb_bind_double
+                                              stmt idx (if (number? v)
+                                                         (Casts/longCast v)
+                                                         (dt-dt-base/instant->microseconds-since-epoch v)))
+            duckdb-ffi/DUCKDB_TYPE_VARCHAR
+            (let [strval (str v)
+                  len (.length strval)]
+              (duckdb-ffi/duckdb_bind_varchar_length stmt idx strval len))))]
+    (when-not (== 0 (long errcode))
+      (let [errptr (duckdb-ffi/duckdb_prepare_error stmt)
+            errstr (if errptr
+                     (dt-ffi/c->string errptr)
+                     "Unknown Error")]
+        (throw (RuntimeException. (str "Failed to set param " idx ":" errstr)))))))
+
+
+(defn prepared-statement
   "Create a prepared statement returning a clojure function you can call taking args specified
   in the prepared statement.
 .
   The function can return value may be a sequence of datasets in the streaming
-  case or a single dataset.  The default is a sequence of datasets.  This function
-  has state that will be released using the resource system.
+  case or a single dataset.  The default is a `:streaming` which result in a sequence of datasets.
+  This function has state that will be released using the resource system.
 
   Options are passed through to dataset creation.
 
   Options:
-  * `:return-type` - either `:streaming` or `:single` defaults to `:streaming`."
-  ([conn sql options])
-  ([conn sql]))
+  * `:result-type` - either `:streaming` or `:single` defaults to `:streaming`."
+  ([conn sql] (create-prepared-statement conn sql nil))
+  ([conn sql options]
+   (let [stmt (dt-struct/new-struct :duckdb-prepared-statement {:container-type :native-heap
+                                                                :resource-type :auto})
+         destroy-prep* (delay (duckdb-ffi/duckdb_destroy_prepare stmt))
+         check-prepare-error (fn [^long tval]
+              )
+
+         tval (duckdb-ffi/duckdb_prepare conn sql stmt)
+         _   (when-not (== 0 tval)
+               (let [errptr (duckdb-ffi/duckdb_prepare_error stmt)
+                     errors (when errptr
+                              (dt-ffi/c->string errptr)
+                              "Unknown Error")]
+                                   @destroy-prep*
+                                   (throw (RuntimeException. (str "Error creating prepared statement:\n" errors)))))
+         result-type (get options :result-type :streaming)
+         stmt-ptr (dt-ffi/->pointer stmt)
+         _ (resource/track stmt {:track-type :auto
+                                 :dispose-fn #(deref destroy-prep*)})
+         finalize-stmt (fn []
+                         (let [pending (dt-struct/new-struct :duckdb-pending-result {:container-type :native-heap
+                                                                                     :resource-type :auto})
+                               success (if (identical? result-type :streaming)
+                                         (duckdb-ffi/duckdb_pending_prepared_streaming stmt pending)
+                                         (duckdb-ffi/duckdb_pending_prepared stmt pending))
+                               _ (when-not (= 0 success)
+                                   (let [stmterr (duckdb-ffi/duckdb_prepare_error stmt)
+                                         pnderr (duckdb-ffi/duckdb_pending_error pending)
+                                         errorstr (cond
+                                                    (and stmterr pnderr)
+                                                    (str (dt-ffi/c->string stmterr) " - "
+                                                         (dt-ffi/c->string pnderr))
+                                                    stmterr (dt-ffi/c->string stmterr)
+                                                    pnderr (dt-ffi/c->string pnderr)
+                                                    :else
+                                                    "Unknown Error")]
+                                     (duckdb-ffi/duckdb_destroy_pending pending)
+                                     (throw (RuntimeException. (str "Error executing prepared statement: " errorstr)))))
+                               result (dt-struct/new-struct :duckdb-result)
+                               success (duckdb-ffi/duckdb_execute_pending pending result)
+                               _ (when-not (= 0 success)
+                                   (let  [pnderr (duckdb-ffi/duckdb_pending_error pending)
+                                          errstr (if pnderr
+                                                   (dt-ffi/c->string pnderr)
+                                                   "Unknown Error")]
+                                     (duckdb-ffi/duckdb_destroy_pending pending)
+                                     (duckdb-ffi/duckdb_destroy_result result)
+                                     (throw (RuntimeException. (str "Failed to realize pending result: " errstr)))))
+                               _ (duckdb-ffi/duckdb_destroy_pending pending)
+                               res-ptr (dt-ffi/->pointer result)
+                               _ (resource/track result {:track-type :auto
+                                                         :dispose-fn #(duckdb-ffi/duckdb_destroy_result res-ptr)})
+                               res-data (results->datasets result options)]
+                           (if (identical? result-type :streaming)
+                             res-data
+                             (resource/stack-resource-context
+                              (let [datasets (vec res-data)]
+                                (if (== 1 (count datasets))
+                                  (dt/clone (datasets 0))
+                                  (apply ds/concat datasets)))))))
+         n-params (long (duckdb-ffi/duckdb_nparams stmt))
+         param-types (mapv #(duckdb-ffi/duckdb_param_type stmt %) (range n-params))]
+     (case n-params
+       0 finalize-stmt)
+     )
+   ))
 
 
 (comment
