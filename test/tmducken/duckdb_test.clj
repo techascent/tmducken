@@ -102,7 +102,12 @@
          (is (== 560 (ds/row-count (prep-stmt))) "single")))
       (resource/stack-resource-context
        (let [prep-stmt (duckdb/prepare @conn* "select * from stocks" {:result-type :streaming})]
-         (is (== 560 (ds/row-count (first (prep-stmt)))) "streaming"))))
+         (is (== 560 (ds/row-count (first (prep-stmt)))) "streaming")))
+      (resource/stack-resource-context
+       (let [prep-stmt (duckdb/prepare @conn* "select * from stocks where symbol = $1")]
+         (is (== (ds/row-count (ds/filter-column @stocks-src* :symbol "AAPL"))
+                 (ds/row-count (first (prep-stmt "AAPL")))) "single arg"))))
+
     (finally
       (try
         (duckdb/drop-table! @conn* "stocks")

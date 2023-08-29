@@ -63,12 +63,13 @@ _unnamed [5 3]:
             [clojure.tools.logging :as log])
   (:import [java.nio.file Paths]
            [java.util Map Iterator ArrayList]
+           [java.util.function Supplier]
            [java.time LocalDate LocalTime Instant]
            [tech.v3.datatype.ffi Pointer]
            [ham_fisted ITypedReduce IFnDef$LO Casts]
            [tech.v3.datatype ObjectReader]
            [org.roaringbitmap RoaringBitmap]
-           [clojure.lang Seqable IReduceInit]))
+           [clojure.lang Seqable IReduceInit Counted]))
 
 
 (set! *warn-on-reflection* true)
@@ -317,7 +318,7 @@ tmducken.duckdb> (get-config-options)
           duckdb-type-ids (mapv dtype-type->duckdb dtypes)
           chunk-size (duckdb-ffi/duckdb_vector_size)
           n-chunks (quot (+ n-rows (dec chunk-size)) chunk-size)
-          logical-types (native-buffer/alloc-zeros :int64 n-chunks)
+          logical-types (native-buffer/alloc-zeros :int64 n-cols)
           _ (let [type-buffer (dt/->buffer logical-types)]
               (dotimes [cidx n-cols]
                 (.writeLong type-buffer cidx
@@ -580,39 +581,77 @@ tmducken.duckdb> (get-config-options)
 
 
 (defn- supplier-seq
-  [^java.util.function.Supplier s]
+  [^Supplier s]
   (when-let [item (.get s)]
     (cons item (lazy-seq (supplier-seq s)))))
 
 
-(deftype MappingSupplier [map-fn ^Iterator src-iter immediate-release?]
-  java.util.function.Supplier
-  (get [this]
-    (when (.hasNext src-iter)
-      (map-fn (.next src-iter))))
-  Seqable
-  (seq [this] (supplier-seq this))
+(defn- track-chunk
+  [chunk]
+  (let [addr (.address ^Pointer chunk)]
+    (resource/track chunk {:track-type :auto
+                           :dispose-fn
+                           #(duckdb-ffi/duckdb_destroy_data_chunk (dt-ffi/make-ptr :pointer addr))})))
+
+
+(defn- destroy-chunk
+  [chunk]
+  (duckdb-ffi/duckdb_destroy_data_chunk (dt-ffi/make-ptr :pointer (.address ^Pointer chunk))))
+
+(deftype RealizedResultChunks [^long n-elems
+                               ^{:unsynchronized-mutable true
+                                 :tag long} idx
+                               result
+                               realize-chunk
+                               immediate-release?]
+  Supplier
+  (get [this] (when (< idx n-elems)
+                (let [retval (duckdb-ffi/duckdb_result_get_chunk result idx)]
+                  (set! idx (unchecked-inc idx))
+                  (realize-chunk (track-chunk retval)))))
+  Counted
+  (count [this] n-elems)
   ITypedReduce
   (reduce [this rfn acc]
-    (let [iter src-iter]
-      (if immediate-release?
-        (loop [continue? (.hasNext iter)
-               acc acc]
-          (if (and continue? (not (reduced? acc)))
-            (let [acc (resource/stack-resource-context (rfn acc (map-fn (.next iter))))]
-              (recur (.hasNext src-iter) acc))
-            (if (reduced? acc) @acc acc)))
-        (loop [continue? (.hasNext iter)
-               acc acc]
-          (if (and continue? (not (reduced? acc)))
-            (let [acc (rfn acc (map-fn (.next iter)))]
-              (recur (.hasNext src-iter) acc))
-            (if (reduced? acc) @acc acc)))))))
+    (let [ne n-elems]
+      (loop [lidx idx
+             acc acc]
+        (if (and (< lidx ne)
+                 (not (reduced? acc)))
+          (let [chunk (duckdb-ffi/duckdb_result_get_chunk result lidx)
+                acc (if immediate-release?
+                      (try (rfn acc (realize-chunk chunk))
+                           (finally
+                             (destroy-chunk chunk)))
+                      (rfn acc (realize-chunk (track-chunk chunk))))]
+            (recur (unchecked-inc lidx) acc))
+          (if (reduced? acc) @acc acc)))))
+  Seqable
+  (seq [this] (supplier-seq this)))
 
+(deftype StreamingResultChunks [result
+                                realize-chunk
+                                immediate-release?]
+  Supplier
+  (get [this] (let [chunk (duckdb-ffi/duckdb_stream_fetch_chunk result)]
+                (when (and chunk (not (== 0 (.address ^Pointer chunk))))
+                  (realize-chunk (track-chunk chunk)))))
+  ITypedReduce
+  (reduce [this rfn acc]
+    (loop [acc acc]
+      (let [chunk (duckdb-ffi/duckdb_stream_fetch_chunk result)]
+        (if (and chunk
+                 (not (== 0 (.address ^Pointer chunk)))
+                 (not (reduced? acc)))
+          (recur (if immediate-release?
+                   (try (rfn acc (realize-chunk chunk))
+                        (finally
+                          (destroy-chunk chunk)))
+                   (rfn acc (realize-chunk (track-chunk chunk)))))
+          (if (reduced? acc) @acc acc)))))
+  Seqable
+  (seq [this] (supplier-seq this)))
 
-(defn- supplier-map
-  [options map-fn iable]
-  (MappingSupplier. map-fn (.iterator ^Iterable iable) (get options :immediate-release?)))
 
 
 (defn- results->datasets
@@ -620,15 +659,14 @@ tmducken.duckdb> (get-config-options)
   (let [metadata {:duckdb-result duckdb-result}
         n-cols (long (duckdb-ffi/duckdb_column_count duckdb-result))
         names (hamf/mapv #(dt-ffi/c->string (duckdb-ffi/duckdb_column_name duckdb-result %)) (hamf/range n-cols))
-        types (hamf/mapv #(let [db-type (duckdb-ffi/duckdb_column_logical_type duckdb-result %)
-                                ;;complex work-around so we have a pointer to release as the destroy fn takes
-                                ;;a ptr and not the thing by copying.
-                                type-ptr (dt-ffi/->pointer db-type)]
-                            (resource/track db-type {:track-type :auto
-                                                     :dispose-fn (fn [] (duckdb-ffi/duckdb_destroy_logical_type type-ptr))})
-                            db-type)
+        type-ids (hamf/mapv #(let [db-type (duckdb-ffi/duckdb_column_logical_type duckdb-result %)
+                                   ;;complex work-around so we have a pointer to release as the destroy fn takes
+                                   ;;a ptr and not the thing by copying.
+                                   retval (duckdb-ffi/duckdb_get_type_id db-type)]
+                               (-> (dt-ffi/make-ptr :pointer (.address ^Pointer db-type))
+                                   (duckdb-ffi/duckdb_destroy_logical_type))
+                               retval)
                          (hamf/range n-cols))
-        type-ids (lznc/map #(duckdb-ffi/duckdb_get_type_id %) types)
         realize-chunk (fn [data-chunk]
                         (try
                           (let [n-rows (duckdb-ffi/duckdb_data_chunk_get_size data-chunk)]
@@ -644,19 +682,21 @@ tmducken.duckdb> (get-config-options)
                                                                                           (.-address data-ptr))
                                                                    ;;skip any further scanning
                                                                    :force-datatype? true})))
-                                 (ds/new-dataset options (assoc metadata :data-chunk data-chunk))))))]
+                                 ;;we associate the data chunk with the dataset so that it is accurately
+                                 ;;tracked by the gc.  The datasets is mostly realized in place so the if the
+                                 ;;chunk goes away further reading from the dataset is likely to return incorrect
+                                 ;;results and or crash.
+                                 (ds/new-dataset options (assoc metadata :data-chunk data-chunk))))))
+        immediate-release? (boolean (get options :immediate-release?))]
     (if (== 0 (long (duckdb-ffi/duckdb_result_is_streaming duckdb-result)))
-      (->> (hamf/range (duckdb-ffi/duckdb_result_chunk_count duckdb-result))
-           (supplier-map
-            options
-            (fn [^long cidx]
-              (let [chunk (duckdb-ffi/duckdb_result_get_chunk duckdb-result cidx)
-                    chunk-ptr (dt-ffi/->pointer chunk)]
-                (-> (resource/track chunk {:track-type :auto
-                                           :dispose-fn #(duckdb-ffi/duckdb_destroy_data_chunk chunk-ptr)})
-                    (realize-chunk))))))
-
-      (throw (RuntimeException. "Streaming results are not supported at this time")))))
+      (RealizedResultChunks. (duckdb-ffi/duckdb_result_chunk_count duckdb-result)
+                             0
+                             duckdb-result
+                             realize-chunk
+                             immediate-release?)
+      (StreamingResultChunks. duckdb-result
+                              realize-chunk
+                              immediate-release?))))
 
 
 (defn sql->datasets
@@ -719,22 +759,30 @@ _unnamed [5 3]:
    (sql->datasets conn sql nil)))
 
 
+(defn datasets->dataset
+  "Given a sequence of results return a single dataset.  This pathway only works if
+  :immediate-release? is set to false."
+  [results]
+  (let [dsdata (vec results)]
+    (if (== 1 (count dsdata))
+      ;;ensure things get cloned into jvm heap.
+      (dt/clone (dsdata 0))
+      (apply ds/concat dsdata))))
+
+
 (defn sql->dataset
   "Execute a query returning a single dataset.  This runs the query in a context that releases the memory used
   for the result set before function returns returning a dataset that has no native bindings."
   ([conn sql options]
    (resource/stack-resource-context
-    (let [dsdata (vec (sql->datasets conn sql (assoc options :immediate-release? false)))]
-      (if (== 1 (count dsdata))
-        ;;ensure things get cloned into jvm heap.
-        (dt/clone (dsdata 0))
-        (apply ds/concat dsdata)))))
+    (datasets->dataset (sql->datasets conn sql (assoc options :immediate-release? false)))))
   ([conn sql] (sql->dataset conn sql nil)))
 
 
 (defn- bind-prepare-param
   [stmt idx type-id v]
-  (let [errcode
+  ;;type-id appears unreliable at this timee
+  #_(let [errcode
         (if (nil? v)
           (duckdb-ffi/duckdb_bind_null stmt idx (if (Casts/booleanCast v) 1 0))
           (case type-id
@@ -769,47 +817,66 @@ _unnamed [5 3]:
             errstr (if errptr
                      (dt-ffi/c->string errptr)
                      "Unknown Error")]
-        (throw (RuntimeException. (str "Failed to set param " idx ":" errstr)))))))
+        (throw (RuntimeException. (str "Failed to set param " idx ":" errstr))))))
+  (cond
+    (nil? v)
+    (duckdb-ffi/duckdb_bind_null stmt idx)
+    (integer? v)
+    (duckdb-ffi/duckdb_bind_int64 stmt idx (Casts/longCast v))
+    (or (float? v) (double? v))
+    (duckdb-ffi/duckdb_bind_double stmt idx (double v))
+    (string? v)
+    (let [strval (str v)
+          len (.length strval)]
+      (duckdb-ffi/duckdb_bind_varchar_length stmt idx (dt-ffi/string->c strval) len))
+    (instance? LocalDate v)
+    (duckdb-ffi/duckdb_bind_date stmt idx (.toEpochDay ^LocalDate v))
+    (instance? LocalTime v)
+    (duckdb-ffi/duckdb_bind_time
+     stmt idx (quot (.toNanoOfDay ^LocalTime v)
+                    dt-dt-constants/nanoseconds-in-microsecond))
+    (instance? Instant v)
+    (duckdb-ffi/duckdb_bind_timestamp
+     stmt idx (dt-dt-base/instant->microseconds-since-epoch v))
+    :else
+    (throw (RuntimeException. (str "Unable to discern binding type for value: " v)))))
 
 
 (defn prepare
   "Create a prepared statement returning a clojure function you can call taking args specified
   in the prepared statement.
 .
-  The function can return value may be a sequence of datasets in the streaming
+  The function return value is a sequence of datasets.  In streaming mode, that sequence is realized
   case or a single dataset.  The default is a `:streaming` which result in a sequence of datasets.
   This function has state that will be released using the resource system.
 
   Options are passed through to dataset creation.
 
   Options:
-  * `:result-type` - either `:streaming` or `:single` defaults to `:streaming`."
+  * `:result-type` - `:streaming`,  `:realized`, or `:single` defaults to `:streaming`."
   ([conn sql] (prepare conn sql nil))
   ([conn sql options]
-   (let [stmt (dt-struct/new-struct :duckdb-prepared-statement {:container-type :native-heap
-                                                                :resource-type :auto})
-         destroy-prep* (delay (duckdb-ffi/duckdb_destroy_prepare stmt))
-         check-prepare-error (fn [^long tval]
-              )
-
-         tval (duckdb-ffi/duckdb_prepare conn sql stmt)
+   (let [stmt-ptr (dt-ffi/make-ptr :pointer 0)
+         destroy-prep* (delay (duckdb-ffi/duckdb_destroy_prepare stmt-ptr))
+         tval (duckdb-ffi/duckdb_prepare conn sql stmt-ptr)
+         stmt (Pointer. (long (stmt-ptr 0)))
          _   (when-not (== 0 tval)
                (let [errptr (duckdb-ffi/duckdb_prepare_error stmt)
                      errors (when errptr
                               (dt-ffi/c->string errptr)
                               "Unknown Error")]
-                                   @destroy-prep*
-                                   (throw (RuntimeException. (str "Error creating prepared statement:\n" errors)))))
+                 @destroy-prep*
+                 (throw (RuntimeException. (str "Error creating prepared statement:\n" errors)))))
          result-type (get options :result-type :streaming)
          stmt-ptr (dt-ffi/->pointer stmt)
          _ (resource/track stmt {:track-type :auto
                                  :dispose-fn #(deref destroy-prep*)})
          finalize-stmt (fn []
-                         (let [pending (dt-struct/new-struct :duckdb-pending-result {:container-type :native-heap
-                                                                                     :resource-type :auto})
+                         (let [pending-ptr (dt-ffi/make-ptr :pointer 0)
                                success (if (identical? result-type :streaming)
-                                         (duckdb-ffi/duckdb_pending_prepared_streaming stmt pending)
-                                         (duckdb-ffi/duckdb_pending_prepared stmt pending))
+                                         (duckdb-ffi/duckdb_pending_prepared_streaming stmt pending-ptr)
+                                         (duckdb-ffi/duckdb_pending_prepared stmt pending-ptr))
+                               pending (Pointer. (pending-ptr 0))
                                _ (when-not (= 0 success)
                                    (let [stmterr (duckdb-ffi/duckdb_prepare_error stmt)
                                          pnderr (duckdb-ffi/duckdb_pending_error pending)
@@ -821,7 +888,7 @@ _unnamed [5 3]:
                                                     pnderr (dt-ffi/c->string pnderr)
                                                     :else
                                                     "Unknown Error")]
-                                     (duckdb-ffi/duckdb_destroy_pending pending)
+                                     (duckdb-ffi/duckdb_destroy_pending pending-ptr)
                                      (throw (RuntimeException. (str "Error executing prepared statement: "
                                                                     errorstr)))))
                                result (dt-struct/new-struct :duckdb-result {:container-type :native-heap
@@ -832,43 +899,43 @@ _unnamed [5 3]:
                                           errstr (if pnderr
                                                    (dt-ffi/c->string pnderr)
                                                    "Unknown Error")]
-                                     (duckdb-ffi/duckdb_destroy_pending pending)
+                                     (duckdb-ffi/duckdb_destroy_pending pending-ptr)
                                      (duckdb-ffi/duckdb_destroy_result result)
                                      (throw (RuntimeException. (str "Failed to realize pending result: " errstr)))))
-                               _ (duckdb-ffi/duckdb_destroy_pending pending)
+                               _ (duckdb-ffi/duckdb_destroy_pending pending-ptr)
                                res-ptr (dt-ffi/->pointer result)
                                _ (resource/track result {:track-type :auto
                                                          :dispose-fn #(duckdb-ffi/duckdb_destroy_result res-ptr)})
+                               options (if (identical? result-type :single)
+                                         (assoc options :immediate-release? false)
+                                         options)
                                res-data (results->datasets result options)]
-                           (if (identical? result-type :streaming)
-                             res-data
-                             (resource/stack-resource-context
-                              (let [datasets (vec res-data)]
-                                (if (== 1 (count datasets))
-                                  (dt/clone (datasets 0))
-                                  (apply ds/concat datasets)))))))
+                           (case result-type
+                             :streaming res-data
+                             :realized res-data
+                             :single (results->dataset res-data))))
          n-params (long (duckdb-ffi/duckdb_nparams stmt))
-         param-types (mapv #(duckdb-ffi/duckdb_param_type stmt %) (range n-params))]
+         ;;Prepared statements have 1-based indexing (!!)
+         param-types (mapv #(duckdb-ffi/duckdb_param_type stmt (+ 1 (long %))) (range n-params))]
      (case n-params
        0 finalize-stmt
        1 (fn [v0]
-           (bind-prepare-param stmt 0 (nth param-types 0) v0)
+           (bind-prepare-param stmt 1 (nth param-types 0) v0)
            (finalize-stmt))
        2 (fn [v0 v1]
-           (bind-prepare-param stmt 0 (nth param-types 0) v0)
-           (bind-prepare-param stmt 1 (nth param-types 1) v1)
+           (bind-prepare-param stmt 1 (nth param-types 0) v0)
+           (bind-prepare-param stmt 2 (nth param-types 1) v1)
            (finalize-stmt))
        3 (fn [v0 v1 v2]
-           (bind-prepare-param stmt 0 (nth param-types 0) v0)
-           (bind-prepare-param stmt 1 (nth param-types 1) v1)
-           (bind-prepare-param stmt 2 (nth param-types 2) v2)
+           (bind-prepare-param stmt 1 (nth param-types 0) v0)
+           (bind-prepare-param stmt 2 (nth param-types 1) v1)
+           (bind-prepare-param stmt 3 (nth param-types 2) v2)
            (finalize-stmt))
        (fn [& args]
          (when-not (== (count args) n-params)
            (throw (RuntimeException. (format "Prepared statement defined for %d parameters -- %d given"
                                              n-params (count args)))))
-         (duckdb-ffi/duckdb_clear_bindings stmt)
-         (dorun (lznc/map-indexed #(bind-prepare-param stmt %1 (nth param-types %1) %2)
+         (dorun (lznc/map-indexed #(bind-prepare-param stmt (inc %1) (nth param-types %1) %2)
                                   args))
          (finalize-stmt))))))
 

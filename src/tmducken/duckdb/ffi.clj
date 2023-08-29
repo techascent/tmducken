@@ -262,7 +262,7 @@ all memory associated with the appender.
 
     ;;DUCKDB_API bool duckdb_result_is_streaming(duckdb_result result);
     :duckdb_result_is_streaming {:rettype :int8
-                                 :argtypes [[result :pointer]]}
+                                 :argtypes [[result (by-value :duckdb-result)]]}
 
     ;;DUCKDB_API duckdb_logical_type duckdb_column_logical_type(duckdb_result *result, idx_t col);
     :duckdb_column_logical_type {:rettype :pointer
@@ -275,11 +275,11 @@ all memory associated with the appender.
 
     ;; DUCKDB_API idx_t duckdb_result_chunk_count(duckdb_result result);
     :duckdb_result_chunk_count {:rettype :int64
-                                :argtypes [[result :pointer]]}
+                                :argtypes [[result (by-value :duckdb-result)]]}
 
     ;;DUCKDB_API duckdb_data_chunk duckdb_result_get_chunk(duckdb_result result, idx_t chunk_index);
     :duckdb_result_get_chunk {:rettype :pointer
-                              :argtypes [[result :pointer]
+                              :argtypes [[result (by-value :duckdb-result)]
                                          [chunk-index :int64]]}
 
     ;;DUCKDB_API duckdb_data_chunk duckdb_create_data_chunk(duckdb_logical_type *types, idx_t column_count);
@@ -481,8 +481,8 @@ all memory associated with the appender.
                                         [duckdb-result :pointer]]}
 
     ;;DUCKDB_API duckdb_data_chunk duckdb_stream_fetch_chunk(duckdb_result result);
-    :duckdb_stream_fetch_chunk {:rettype :pointer
-                                :argtypes [[result :pointer]]}
+    :duckdb_stream_fetch_chunk {:rettype :pointer?
+                                :argtypes [[result (by-value :duckdb-result)]]}
     }
   nil
   nil)
