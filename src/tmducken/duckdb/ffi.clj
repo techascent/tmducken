@@ -232,8 +232,8 @@ all memory associated with the appender.
 
     ;;DUCKDB_API duckdb_state duckdb_append_data_chunk(duckdb_appender appender, duckdb_data_chunk chunk);
     :duckdb_append_data_chunk {:rettype :int32
-                               :argtypes [[appender (by-value :duckdb-appender)]
-                                          [data-chunk (by-value :duckdb-data-chunk)]]}
+                               :argtypes [[appender :pointer]
+                                          [data-chunk :pointer]]}
 
 
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -245,7 +245,7 @@ all memory associated with the appender.
                               [query :string]
                               [out_result :pointer]]}
     :duckdb_row_count {:rettype :int64
-                          :argtypes [[result :pointer]]}
+                       :argtypes [[result :pointer]]}
     :duckdb_column_count {:rettype :int64
                           :argtypes [[result :pointer]]}
     :duckdb_destroy_result {:rettype :void
@@ -262,10 +262,10 @@ all memory associated with the appender.
 
     ;;DUCKDB_API bool duckdb_result_is_streaming(duckdb_result result);
     :duckdb_result_is_streaming {:rettype :int8
-                                 :argtypes [[result (by-value :duckdb-result)]]}
+                                 :argtypes [[result :pointer]]}
 
     ;;DUCKDB_API duckdb_logical_type duckdb_column_logical_type(duckdb_result *result, idx_t col);
-    :duckdb_column_logical_type {:rettype (by-value :duckdb-logical-type)
+    :duckdb_column_logical_type {:rettype :pointer
                                  :argtypes [[result :pointer]
                                             [cidx :int64]]}
 
@@ -275,15 +275,15 @@ all memory associated with the appender.
 
     ;; DUCKDB_API idx_t duckdb_result_chunk_count(duckdb_result result);
     :duckdb_result_chunk_count {:rettype :int64
-                                :argtypes [[result (by-value :duckdb-result)]]}
+                                :argtypes [[result :pointer]]}
 
     ;;DUCKDB_API duckdb_data_chunk duckdb_result_get_chunk(duckdb_result result, idx_t chunk_index);
-    :duckdb_result_get_chunk {:rettype (by-value :duckdb-data-chunk)
-                              :argtypes [[result (by-value :duckdb-result)]
+    :duckdb_result_get_chunk {:rettype :pointer
+                              :argtypes [[result :pointer]
                                          [chunk-index :int64]]}
 
     ;;DUCKDB_API duckdb_data_chunk duckdb_create_data_chunk(duckdb_logical_type *types, idx_t column_count);
-    :duckdb_create_data_chunk {:rettype (by-value :duckdb-data-chunk)
+    :duckdb_create_data_chunk {:rettype :pointer
                                :argtypes [[types :pointer]
                                           [column-count :int64]]}
 
@@ -292,36 +292,36 @@ all memory associated with the appender.
                                 :argtypes [[chunk :pointer]]} ;;ptr-to-chunk
     ;;DUCKDB_API idx_t duckdb_data_chunk_get_column_count(duckdb_data_chunk chunk);
     :duckdb_data_chunk_get_column_count {:rettype :int64
-                                         :argtypes [[chunk (by-value :duckdb-data-chunk)]]}
+                                         :argtypes [[chunk :pointer]]}
 
     ;;DUCKDB_API idx_t duckdb_data_chunk_get_size(duckdb_data_chunk chunk);
     :duckdb_data_chunk_get_size {:rettype :int64
-                                 :argtypes [[chunk (by-value :duckdb-data-chunk)]]}
+                                 :argtypes [[chunk :pointer]]}
 
     ;;DUCKDB_API duckdb_vector duckdb_data_chunk_get_vector(duckdb_data_chunk chunk, idx_t col_idx);
-    :duckdb_data_chunk_get_vector {:rettype (by-value :duckdb-vector)
-                                   :argtypes [[chunk (by-value :duckdb-data-chunk)]
+    :duckdb_data_chunk_get_vector {:rettype :pointer
+                                   :argtypes [[chunk :pointer]
                                               [col-idx :int64]]}
 
     ;;DUCKDB_API duckdb_logical_type duckdb_vector_get_column_type(duckdb_vector vector)
-    :duckdb_vector_get_column_type {:rettype (by-value :duckdb-logical-type)
-                                    :argtypes [[vector (by-value :duckdb-vector)]]}
+    :duckdb_vector_get_column_type {:rettype :pointer
+                                    :argtypes [[vector :pointer]]}
 
     ;;DUCKDB_API void *duckdb_vector_get_data(duckdb_vector vector)
     :duckdb_vector_get_data {:rettype :pointer
-                             :argtypes [[vector (by-value :duckdb-vector)]]}
+                             :argtypes [[vector :pointer]]}
 
     ;;DUCKDB_API uint64_t *duckdb_vector_get_validity(duckdb_vector vector)
     :duckdb_vector_get_validity {:rettype :pointer
-                                 :argtypes [[vector (by-value :duckdb-vector)]]}
+                                 :argtypes [[vector :pointer]]}
 
     ;;DUCKDB_API void duckdb_vector_ensure_validity_writable(duckdb_vector vector);
     :duckdb_vector_ensure_validity_writable {:rettype :void
-                                             :argtypes [[vector (by-value :duckdb-vector)]]}
+                                             :argtypes [[vector :pointer]]}
 
 
     ;;DUCKDB_API duckdb_logical_type duckdb_create_logical_type(duckdb_type type);
-    :duckdb_create_logical_type {:rettype (by-value :duckdb-logical-type)
+    :duckdb_create_logical_type {:rettype :pointer
                                  :argtypes [[duckdb_type :int32]]}
 
     ;;DUCKDB_API void duckdb_destroy_logical_type(duckdb_logical_type *type);
@@ -330,15 +330,15 @@ all memory associated with the appender.
 
     ;;DUCKDB_API duckdb_type duckdb_get_type_id(duckdb_logical_type type);
     :duckdb_get_type_id {:rettype :int32
-                         :argtypes [[type (by-value :duckdb-logical-type)]]}
+                         :argtypes [[type :pointer]]}
 
     ;;DUCKDB_API void duckdb_data_chunk_reset(duckdb_data_chunk chunk);
     :duckdb_data_chunk_reset {:rettype :void
-                              :argtypes [[chunk (by-value :duckdb-data-chunk)]]}
+                              :argtypes [[chunk :pointer]]}
 
     ;;DUCKDB_API void duckdb_data_chunk_set_size(duckdb_data_chunk chunk, idx_t size);
     :duckdb_data_chunk_set_size {:rettype :void
-                                 :argtypes [[chunk (by-value :duckdb-data-chunk)]
+                                 :argtypes [[chunk :pointer]
                                             [size :int64]]}
 
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -356,87 +356,87 @@ all memory associated with the appender.
 
     ;; DUCKDB_API const char *duckdb_prepare_error(duckdb_prepared_statement prepared_statement);
     :duckdb_prepare_error {:rettype :pointer?
-                           :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]]}
+                           :argtypes [[prepared-statement :pointer]]}
     ;; DUCKDB_API idx_t duckdb_nparams(duckdb_prepared_statement prepared_statement);
     :duckdb_nparams {:rettype :int64
-                     :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]]}
+                     :argtypes [[prepared-statement :pointer]]}
     ;; DUCKDB_API duckdb_type duckdb_param_type(duckdb_prepared_statement prepared_statement, idx_t param_idx);
     :duckdb_param_type {:rettype :int32
-                        :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                        :argtypes [[prepared-statement :pointer]
                                    [param-idx :int64]]}
     ;; DUCKDB_API duckdb_state duckdb_clear_bindings(duckdb_prepared_statement prepared_statement);
     :duckdb_clear_bindings {:rettype :int32
-                            :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]]}
+                            :argtypes [[prepared-statement :pointer]]}
     ;; DUCKDB_API duckdb_state duckdb_bind_boolean(duckdb_prepared_statement prepared_statement, idx_t param_idx, bool val);
     :duckdb_bind_boolean {:rettype :int32
-                          :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                          :argtypes [[prepared-statement :pointer]
                                      [param-idx :int64]
                                      [val :int8]]}
     ;; DUCKDB_API duckdb_state duckdb_bind_int8(duckdb_prepared_statement prepared_statement, idx_t param_idx, int8_t val);
     :duckdb_bind_int8 {:rettype :int32
-                       :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                       :argtypes [[prepared-statement :pointer]
                                   [param-idx :int64]
                                   [val :int8]]}
     :duckdb_bind_int16 {:rettype :int32
-                        :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                        :argtypes [[prepared-statement :pointer]
                                    [param-idx :int64]
                                    [val :int16]]}
     :duckdb_bind_int32 {:rettype :int32
-                        :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                        :argtypes [[prepared-statement :pointer]
                                    [param-idx :int64]
                                    [val :int32]]}
     :duckdb_bind_int64 {:rettype :int32
-                        :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                        :argtypes [[prepared-statement :pointer]
                                    [param-idx :int64]
                                    [val :int64]]}
     :duckdb_bind_uint8 {:rettype :int32
-                        :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                        :argtypes [[prepared-statement :pointer]
                                    [param-idx :int64]
                                    [val :int8]]}
     :duckdb_bind_uint16 {:rettype :int32
-                         :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                         :argtypes [[prepared-statement :pointer]
                                     [param-idx :int64]
                                     [val :int16]]}
     :duckdb_bind_uint32 {:rettype :int32
-                         :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                         :argtypes [[prepared-statement :pointer]
                                     [param-idx :int64]
                                     [val :int32]]}
     :duckdb_bind_uint64 {:rettype :int32
-                         :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                         :argtypes [[prepared-statement :pointer]
                                     [param-idx :int64]
                                     [val :int64]]}
 
     :duckdb_bind_float {:rettype :int32
-                        :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                        :argtypes [[prepared-statement :pointer]
                                    [param-idx :int64]
                                    [val :float32]]}
     :duckdb_bind_double {:rettype :int32
-                         :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                         :argtypes [[prepared-statement :pointer]
                                     [param-idx :int64]
                                     [val :float64]]}
     :duckdb_bind_date {:rettype :int32
-                       :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                       :argtypes [[prepared-statement :pointer]
                                   [param-idx :int64]
                                   [val :int32]]}
     :duckdb_bind_time {:rettype :int32
-                       :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                       :argtypes [[prepared-statement :pointer]
                                   [param-idx :int64]
                                   [val :int64]]}
 
     :duckdb_bind_timestamp {:rettype :int32
-                            :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                            :argtypes [[prepared-statement :pointer]
                                        [param-idx :int64]
                                        [val :int64]]}
     ;; DUCKDB_API duckdb_state duckdb_bind_varchar_length(duckdb_prepared_statement prepared_statement, idx_t param_idx,
     ;;                                                                              const char *val, idx_t length);
     :duckdb_bind_varchar_length {:rettype :int32
-                                 :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                                 :argtypes [[prepared-statement :pointer]
                                             [param-idx :int64]
                                             [val :pointer]
                                             [length :int64]]}
 
     :duckdb_bind_null {:rettype :int32
-                       :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                       :argtypes [[prepared-statement :pointer]
                                   [param-idx :int64]]}
 
 
@@ -461,24 +461,28 @@ all memory associated with the appender.
     ;; ;; DUCKDB_API duckdb_state duckdb_pending_prepared(duckdb_prepared_statement prepared_statement,
     ;; ;;                                                                           duckdb_pending_result *out_result);
     :duckdb_pending_prepared {:rettype :int32
-                              :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                              :argtypes [[prepared-statement :pointer]
                                          [out-pending-result :pointer]]}
     ;; ;; DUCKDB_API duckdb_state duckdb_pending_prepared_streaming(duckdb_prepared_statement prepared_statement,
     ;; ;;                                                                                     duckdb_pending_result *out_result);
     :duckdb_pending_prepared_streaming {:rettype :int32
-                                        :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
+                                        :argtypes [[prepared-statement :pointer]
                                                    [out-pending-result :pointer]]}
     ;; ;; DUCKDB_API void duckdb_destroy_pending(duckdb_pending_result *pending_result);
     :duckdb_destroy_pending {:rettype :void
                              :argtypes [[pending-result :pointer]]}
     :duckdb_pending_error {:rettype :pointer?
-                           :argtypes [[pending-result (by-value :duckdb-pending-result)]]}
+                           :argtypes [[pending-result :pointer]]}
     ;; ;; DUCKDB_API const char *duckdb_pending_error(duckdb_pending_result pending_result);
     ;; ;; DUCKDB_API duckdb_pending_state duckdb_pending_execute_task(duckdb_pending_result pending_result);
     ;; ;; DUCKDB_API duckdb_state duckdb_execute_pending(duckdb_pending_result pending_result, duckdb_result *out_result);
     :duckdb_execute_pending {:rettype :int32
-                             :argtypes [[pending-result (by-value :duckdb-pending-result)]
+                             :argtypes [[pending-result :pointer]
                                         [duckdb-result :pointer]]}
+
+    ;;DUCKDB_API duckdb_data_chunk duckdb_stream_fetch_chunk(duckdb_result result);
+    :duckdb_stream_fetch_chunk {:rettype :pointer
+                                :argtypes [[result :pointer]]}
     }
   nil
   nil)

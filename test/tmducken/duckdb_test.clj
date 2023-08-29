@@ -3,7 +3,8 @@
             [tmducken.duckdb :as duckdb]
             [tech.v3.dataset :as ds]
             [tech.v3.datatype.functional :as dfn]
-            [tech.v3.datatype.datetime :as dtype-dt])
+            [tech.v3.datatype.datetime :as dtype-dt]
+            [tech.v3.resource :as resource])
   (:import [java.util UUID]
            [java.time LocalTime]
            [tech.v3.dataset Text]))
@@ -65,11 +66,15 @@
       (try (duckdb/drop-table! @conn* "testtable")
            (catch Throwable e nil)))))
 
+(defonce stocks-src* (delay
+                       (ds/->dataset "https://github.com/techascent/tech.ml.dataset/raw/master/test/data/stocks.csv"
+                                     {:key-fn keyword
+                                      :dataset-name :stocks})))
+
 
 (deftest basic-stocks-test
   (try
-    (let [stocks (-> (ds/->dataset "https://github.com/techascent/tech.ml.dataset/raw/master/test/data/stocks.csv" {:key-fn keyword})
-                     (vary-meta assoc :name :stocks))
+    (let [stocks @stocks-src*
           _ (do (duckdb/create-table! @conn* stocks)
                 (duckdb/insert-dataset! @conn* stocks))
           sql-stocks (duckdb/sql->dataset @conn* "select * from stocks")]
@@ -81,6 +86,23 @@
              (vec (sql-stocks "date"))))
       (is (dfn/equals (stocks :price)
                       (sql-stocks "price"))))
+    (finally
+      (try
+        (duckdb/drop-table! @conn* "stocks")
+        (catch Throwable e nil)))))
+
+
+(deftest prepared-statements-test
+  (try
+    (let [stocks @stocks-src*
+          _ (do (duckdb/create-table! @conn* stocks)
+                (duckdb/insert-dataset! @conn* stocks))]
+      (resource/stack-resource-context
+       (let [prep-stmt (duckdb/prepare @conn* "select * from stocks" {:result-type :single})]
+         (is (== 560 (ds/row-count (prep-stmt))) "single")))
+      (resource/stack-resource-context
+       (let [prep-stmt (duckdb/prepare @conn* "select * from stocks" {:result-type :streaming})]
+         (is (== 560 (ds/row-count (first (prep-stmt)))) "streaming"))))
     (finally
       (try
         (duckdb/drop-table! @conn* "stocks")

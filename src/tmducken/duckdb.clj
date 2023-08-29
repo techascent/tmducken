@@ -297,14 +297,14 @@ tmducken.duckdb> (get-config-options)
   ([conn dataset options]
    (resource/stack-resource-context
     (let [table-name (sql/table-name dataset options)
-          appender (dt-struct/new-struct :duckdb-appender {:container-type :native-heap
-                                                           :resource-type :stack})
-          app-status (duckdb-ffi/duckdb_appender_create conn "" table-name appender)
+          app-ptr-ptr (dt-ffi/make-ptr :pointer 0)
+          app-status (duckdb-ffi/duckdb_appender_create conn "" table-name app-ptr-ptr)
+          appender (Pointer. (app-ptr-ptr 0))
           ;;this is fine because we are hardcoding to track via stack.
           ;;Normally dispose-fn cannot reference things being tracked
           _ (resource/track appender {:track-type :stack
                                       :dispose-fn #(do #_(println "destroying appender")
-                                                       (duckdb-ffi/duckdb_appender_destroy appender))})
+                                                       (duckdb-ffi/duckdb_appender_destroy app-ptr-ptr))})
           check-error (fn [status]
                         (when-not (= status duckdb-ffi/DuckDBSuccess)
                           (let [err (duckdb-ffi/duckdb_appender_error appender)]
@@ -317,14 +317,13 @@ tmducken.duckdb> (get-config-options)
           duckdb-type-ids (mapv dtype-type->duckdb dtypes)
           chunk-size (duckdb-ffi/duckdb_vector_size)
           n-chunks (quot (+ n-rows (dec chunk-size)) chunk-size)
-          logical-types (dt-struct/new-array-of-structs :duckdb-logical-type n-cols
-                                                        {:container-type :native-heap
-                                                         :resource-type :stack})
-          _ (resource/stack-resource-context
-             (dotimes [cidx n-cols]
-               (dt-struct/map->struct! (duckdb-ffi/duckdb_create_logical_type
-                                        (duckdb-type-ids cidx))
-                                       (logical-types cidx))))
+          logical-types (native-buffer/alloc-zeros :int64 n-chunks)
+          _ (let [type-buffer (dt/->buffer logical-types)]
+              (dotimes [cidx n-cols]
+                (.writeLong type-buffer cidx
+                            (.address ^Pointer
+                                      (duckdb-ffi/duckdb_create_logical_type
+                                       (duckdb-type-ids cidx))))))
           write-chunk (duckdb-ffi/duckdb_create_data_chunk logical-types n-cols)
           wrap-addr #(native-buffer/wrap-address
                       %1 %2 %3
@@ -428,9 +427,11 @@ tmducken.duckdb> (get-config-options)
              (check-error (duckdb-ffi/duckdb_append_data_chunk appender write-chunk))
              (duckdb-ffi/duckdb_data_chunk_reset write-chunk))))
         (finally
-          (duckdb-ffi/duckdb_destroy_data_chunk write-chunk)
-          (dotimes [cidx n-cols]
-            (duckdb-ffi/duckdb_destroy_logical_type (logical-types cidx))))))))
+          (let [ptrptr (dt-ffi/make-ptr :pointer (.address ^Pointer write-chunk))]
+            (duckdb-ffi/duckdb_destroy_data_chunk ptrptr))
+          (let [types-addr (.address (dt-ffi/->pointer logical-types))]
+            (dotimes [cidx n-cols]
+              (duckdb-ffi/duckdb_destroy_logical_type (Pointer. (+ types-addr (* cidx 8)))))))))))
   ([conn dataset] (insert-dataset! conn dataset nil)))
 
 
@@ -654,6 +655,7 @@ tmducken.duckdb> (get-config-options)
                 (-> (resource/track chunk {:track-type :auto
                                            :dispose-fn #(duckdb-ffi/duckdb_destroy_data_chunk chunk-ptr)})
                     (realize-chunk))))))
+
       (throw (RuntimeException. "Streaming results are not supported at this time")))))
 
 
@@ -730,7 +732,7 @@ _unnamed [5 3]:
   ([conn sql] (sql->dataset conn sql nil)))
 
 
-(defn- bind-prepared-param
+(defn- bind-prepare-param
   [stmt idx type-id v]
   (let [errcode
         (if (nil? v)
@@ -770,7 +772,7 @@ _unnamed [5 3]:
         (throw (RuntimeException. (str "Failed to set param " idx ":" errstr)))))))
 
 
-(defn prepared-statement
+(defn prepare
   "Create a prepared statement returning a clojure function you can call taking args specified
   in the prepared statement.
 .
@@ -782,7 +784,7 @@ _unnamed [5 3]:
 
   Options:
   * `:result-type` - either `:streaming` or `:single` defaults to `:streaming`."
-  ([conn sql] (create-prepared-statement conn sql nil))
+  ([conn sql] (prepare conn sql nil))
   ([conn sql options]
    (let [stmt (dt-struct/new-struct :duckdb-prepared-statement {:container-type :native-heap
                                                                 :resource-type :auto})
@@ -820,8 +822,10 @@ _unnamed [5 3]:
                                                     :else
                                                     "Unknown Error")]
                                      (duckdb-ffi/duckdb_destroy_pending pending)
-                                     (throw (RuntimeException. (str "Error executing prepared statement: " errorstr)))))
-                               result (dt-struct/new-struct :duckdb-result)
+                                     (throw (RuntimeException. (str "Error executing prepared statement: "
+                                                                    errorstr)))))
+                               result (dt-struct/new-struct :duckdb-result {:container-type :native-heap
+                                                                            :resource-type :auto})
                                success (duckdb-ffi/duckdb_execute_pending pending result)
                                _ (when-not (= 0 success)
                                    (let  [pnderr (duckdb-ffi/duckdb_pending_error pending)
@@ -846,9 +850,27 @@ _unnamed [5 3]:
          n-params (long (duckdb-ffi/duckdb_nparams stmt))
          param-types (mapv #(duckdb-ffi/duckdb_param_type stmt %) (range n-params))]
      (case n-params
-       0 finalize-stmt)
-     )
-   ))
+       0 finalize-stmt
+       1 (fn [v0]
+           (bind-prepare-param stmt 0 (nth param-types 0) v0)
+           (finalize-stmt))
+       2 (fn [v0 v1]
+           (bind-prepare-param stmt 0 (nth param-types 0) v0)
+           (bind-prepare-param stmt 1 (nth param-types 1) v1)
+           (finalize-stmt))
+       3 (fn [v0 v1 v2]
+           (bind-prepare-param stmt 0 (nth param-types 0) v0)
+           (bind-prepare-param stmt 1 (nth param-types 1) v1)
+           (bind-prepare-param stmt 2 (nth param-types 2) v2)
+           (finalize-stmt))
+       (fn [& args]
+         (when-not (== (count args) n-params)
+           (throw (RuntimeException. (format "Prepared statement defined for %d parameters -- %d given"
+                                             n-params (count args)))))
+         (duckdb-ffi/duckdb_clear_bindings stmt)
+         (dorun (lznc/map-indexed #(bind-prepare-param stmt %1 (nth param-types %1) %2)
+                                  args))
+         (finalize-stmt))))))
 
 
 (comment
