@@ -598,12 +598,12 @@ tmducken.duckdb> (get-config-options)
   [chunk]
   (duckdb-ffi/duckdb_destroy_data_chunk (dt-ffi/make-ptr :pointer (.address ^Pointer chunk))))
 
-(deftype RealizedResultChunks [^long n-elems
-                               ^{:unsynchronized-mutable true
-                                 :tag long} idx
-                               result
-                               realize-chunk
-                               immediate-release?]
+(deftype ^:private RealizedResultChunks [^long n-elems
+                                         ^{:unsynchronized-mutable true
+                                           :tag long} idx
+                                         result
+                                         realize-chunk
+                                         immediate-release?]
   Supplier
   (get [this] (when (< idx n-elems)
                 (let [retval (duckdb-ffi/duckdb_result_get_chunk result idx)]
@@ -629,9 +629,9 @@ tmducken.duckdb> (get-config-options)
   Seqable
   (seq [this] (supplier-seq this)))
 
-(deftype StreamingResultChunks [result
-                                realize-chunk
-                                immediate-release?]
+(deftype ^:private StreamingResultChunks [result
+                                          realize-chunk
+                                          immediate-release?]
   Supplier
   (get [this] (let [chunk (duckdb-ffi/duckdb_stream_fetch_chunk result)]
                 (when (and chunk (not (== 0 (.address ^Pointer chunk))))
@@ -708,11 +708,10 @@ tmducken.duckdb> (get-config-options)
 
 Options:
 
-  * `:immediate-release?` - defaults to false - When true the return value supports efficient
-  reduction with the caveat the the datasets passed
-  into the reduction are released immediately after the reduction fn returns.  This allows
-  us to directly `reduce` very large result sets *but* it means that you cannot
-  **ever let a non-cloned dataset out of the reduction context**.
+  * `:immediate-release?` - When the result is reduced, the backing store of the dataset is
+    immediately released.  This is a far more efficient way to handle very large datasets but
+    means implicitly the only memory-efficient way to handle the query result is to reduce
+    over it.  Defaults to false.
 
 
 Example:
@@ -761,7 +760,7 @@ _unnamed [5 3]:
 
 (defn datasets->dataset
   "Given a sequence of results return a single dataset.  This pathway only works if
-  :immediate-release? is set to false."
+  `:immediate-release?` is set to false."
   [results]
   (let [dsdata (vec results)]
     (if (== 1 (count dsdata))
@@ -850,10 +849,22 @@ _unnamed [5 3]:
   case or a single dataset.  The default is a `:streaming` which result in a sequence of datasets.
   This function has state that will be released using the resource system.
 
+  For the two option types returning a supplier/sequence, `:streaming` and `:realized` the object
+  returned efficiently implements IReduceInit.  If `:immediate-release?` is true then during the
+  reduction the backing store of the dataset will be released immediately after the return of the
+  reduction function.
+
   Options are passed through to dataset creation.
 
   Options:
-  * `:result-type` - `:streaming`,  `:realized`, or `:single` defaults to `:streaming`."
+  * `:result-type` - one of `#{:streaming :realized :single}.
+     - `:streaming` - uncountable supplier/sequence of datasets.
+     - `:realized` - all results realized, countable supplier/sequence of datasets.
+     - `:single` - results realized into a single dataset.
+  * `:immediate-release?` - When the result is reduced, the backing store of the dataset is
+    immediately released.  This is a far more efficient way to handle very large datasets but
+    means implicitly the only memory-efficient way to handle the query result is to reduce
+    over it.  Defaults to false."
   ([conn sql] (prepare conn sql nil))
   ([conn sql options]
    (let [stmt-ptr (dt-ffi/make-ptr :pointer 0)
