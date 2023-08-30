@@ -69,7 +69,8 @@ _unnamed [5 3]:
            [ham_fisted ITypedReduce IFnDef$LO Casts IFnDef]
            [tech.v3.datatype ObjectReader]
            [org.roaringbitmap RoaringBitmap]
-           [clojure.lang Seqable IReduceInit Counted]))
+           [clojure.lang Seqable IReduceInit Counted IDeref]
+           [java.lang AutoCloseable]))
 
 
 (set! *warn-on-reflection* true)
@@ -204,7 +205,7 @@ tmducken.duckdb> (get-config-options)
 
 
 (defn- run-query!
-  ([conn sql options]
+  (^AutoCloseable [conn sql options]
    (let [query-res (dt-struct/new-struct :duckdb-result {:container-type :native-heap
                                                          :resource-type nil})
          success? (= (duckdb-ffi/duckdb_query conn (str sql) query-res)
@@ -212,16 +213,18 @@ tmducken.duckdb> (get-config-options)
          query-ptr (dt-ffi/->pointer query-res)
          ;;destructor must only be called once and cannot reference query-res as that will
          ;;create a circular references.
-         destructor! (fn []
-                       (duckdb-ffi/duckdb_destroy_result query-ptr)
-                       (native-buffer/free (.address query-ptr)))]
-     (if-not success?
+         destroy-results* (delay (duckdb-ffi/duckdb_destroy_result query-ptr)
+                                 (native-buffer/free (.address query-ptr)))]
+     (when-not success?
        (let [error-msg (dt-ffi/c->string (Pointer. (query-res :error-message)))]
-         (destructor!)
-         (throw (Exception. error-msg)))
-       (resource/track query-res {:track-type (get options :resource-type :auto)
-                                  :dispose-fn destructor!}))))
-  ([conn sql]
+         @destroy-results*
+         (throw (Exception. error-msg))))
+     (reify
+       AutoCloseable
+       (close [this] @destroy-results*)
+       IDeref
+       (deref [this] query-res))))
+  (^AutoCloseable [conn sql]
    (run-query! conn sql nil)))
 
 
@@ -237,8 +240,7 @@ tmducken.duckdb> (get-config-options)
   * `:primary-key` - sequence of column names to be used as the primary key."
   ([conn dataset options]
    (let [sql (sql/create-sql "duckdb" dataset)]
-     (resource/stack-resource-context
-      (run-query! conn sql))
+     (with-open [result (run-query! conn sql)])
      (sql/table-name dataset options)))
   ([conn dataset]
    (create-table! conn dataset nil)))
@@ -253,9 +255,8 @@ tmducken.duckdb> (get-config-options)
 (defn drop-table!
   [conn dataset]
   (let [ds-name (sql/table-name dataset)]
-    (resource/stack-resource-context
-     (run-query! conn (format "drop table %s" ds-name))
-     ds-name)))
+    (with-open [result  (run-query! conn (format "drop table %s" ds-name))])
+    ds-name))
 
 
 (defn- local-time->microseconds
@@ -611,24 +612,41 @@ tmducken.duckdb> (get-config-options)
   (duckdb-ffi/duckdb_destroy_data_chunk (dt-ffi/make-ptr :pointer (.address ^Pointer chunk))))
 
 
+(defn- reduce-chunk
+  [chunk realize-chunk reduce-type rf acc]
+  (let [zc-ds (realize-chunk chunk)]
+    (case reduce-type
+      :clone
+      (let [ds (dt/clone zc-ds)]
+        (destroy-chunk chunk)
+        (rf acc ds))
+      :zero-copy-imm
+      (try (rf acc zc-ds)
+           (finally
+             (destroy-chunk chunk)))
+      :zero-copy
+      (do
+        (track-chunk chunk)
+        (rf acc zc-ds)))))
+
+
 (deftype ^:private RealizedResultChunks [^long n-elems
                                          ^{:unsynchronized-mutable true
                                            :tag long} idx
                                          result
                                          destroy-result*
                                          realize-chunk
-                                         zero-copy-reduce?]
+                                         reduce-type]
   java.lang.AutoCloseable
   (close [this] @destroy-result*)
   Supplier
   (get [this] (when (< idx n-elems)
-                (let [retval (duckdb-ffi/duckdb_result_get_chunk result idx)
-                      chunk-ds (dt/clone (realize-chunk retval))]
+                (let [chunk (duckdb-ffi/duckdb_result_get_chunk result idx)
+                      chunk-ds (realize-chunk chunk)
+                      rv (dt/clone chunk-ds)]
+                  (destroy-chunk chunk)
                   (set! idx (unchecked-inc idx))
-                  (destroy-chunk retval)
-                  (when (== idx n-elems)
-                    @destroy-result*)
-                  chunk-ds)))
+                  rv)))
   Counted
   (count [this] n-elems)
   ;;Eduction-type pathways use iterable
@@ -640,20 +658,12 @@ tmducken.duckdb> (get-config-options)
     (let [ne n-elems]
       (loop [lidx idx
              acc acc]
-        (if (and (< lidx ne)
-                 (not (reduced? acc)))
-          (let [chunk (duckdb-ffi/duckdb_result_get_chunk result lidx)
-                chunk-ds (realize-chunk chunk)
-                acc (try (rfn acc (if zero-copy-reduce?
-                                    chunk-ds
-                                    (dt/clone chunk-ds)))
-                         (finally
-                           (destroy-chunk chunk)))]
-            (recur (unchecked-inc lidx) acc))
+        (if (and (< lidx ne) (not (reduced? acc)))
+          (recur (unchecked-inc lidx)
+                 (-> (duckdb-ffi/duckdb_result_get_chunk result lidx)
+                     (reduce-chunk realize-chunk reduce-type rfn acc)))
           (do
             (set! idx lidx)
-            (when (== lidx ne)
-              @destroy-result*)
             (if (reduced? acc) @acc acc))))))
   ;;Non-chunked sequence pathway.
   Seqable
@@ -663,15 +673,15 @@ tmducken.duckdb> (get-config-options)
 (deftype ^:private StreamingResultChunks [result
                                           destroy-result*
                                           realize-chunk
-                                          zero-copy-reduce?]
+                                          reduce-type]
   java.lang.AutoCloseable
   (close [this] @destroy-result*)
   Supplier
   (get [this] (let [chunk (duckdb-ffi/duckdb_stream_fetch_chunk result)]
-                (if (and chunk (not (== 0 (.address ^Pointer chunk))))
-                  (dt/clone (realize-chunk (track-chunk chunk)))
-                  (do @destroy-result*
-                      nil))))
+                (when (and chunk (not (== 0 (.address ^Pointer chunk))))
+                  (let [ds (dt/clone (realize-chunk chunk))]
+                    (destroy-chunk chunk)
+                    ds))))
   ITypedReduce
   (reduce [this rfn acc]
     (loop [acc acc]
@@ -679,16 +689,8 @@ tmducken.duckdb> (get-config-options)
         (if (and chunk
                  (not (== 0 (.address ^Pointer chunk)))
                  (not (reduced? acc)))
-          (let [chunk-ds (realize-chunk chunk)]
-            (recur (try (rfn acc (if zero-copy-reduce?
-                                   chunk-ds
-                                   (dt/clone chunk-ds)))
-                        (finally
-                          (destroy-chunk chunk)))))
-          (do
-            (when-not chunk
-              @destroy-result*)
-            (if (reduced? acc) @acc acc))))))
+          (recur (reduce-chunk chunk realize-chunk reduce-type rfn acc))
+          (if (reduced? acc) @acc acc)))))
   Iterable
   (iterator [this] (SupplierIter. this (.get this)))
   Seqable
@@ -697,7 +699,7 @@ tmducken.duckdb> (get-config-options)
 
 
 (defn- results->datasets
-  [duckdb-result destroy-result* options]
+  ^AutoCloseable [duckdb-result destroy-result* options]
   (let [metadata {:duckdb-result duckdb-result}
         n-cols (long (duckdb-ffi/duckdb_column_count duckdb-result))
         names (hamf/mapv #(dt-ffi/c->string (duckdb-ffi/duckdb_column_name duckdb-result %)) (hamf/range n-cols))
@@ -729,18 +731,18 @@ tmducken.duckdb> (get-config-options)
                                  ;;chunk goes away further reading from the dataset is likely to return incorrect
                                  ;;results and or crash.
                                  (ds/new-dataset options (assoc metadata :data-chunk data-chunk))))))
-        zero-copy-reduce? (boolean (get options :zero-copy-reduce?))]
+        reduce-type (get options :reduce-type :clone)]
     (if (== 0 (long (duckdb-ffi/duckdb_result_is_streaming duckdb-result)))
       (RealizedResultChunks. (duckdb-ffi/duckdb_result_chunk_count duckdb-result)
                              0
                              duckdb-result
                              destroy-result*
                              realize-chunk
-                             zero-copy-reduce?)
+                             reduce-type)
       (StreamingResultChunks. duckdb-result
                               destroy-result*
                               realize-chunk
-                              zero-copy-reduce?))))
+                              reduce-type))))
 
 
 (defn sql->datasets
@@ -751,8 +753,6 @@ tmducken.duckdb> (get-config-options)
   Examples:
 
 ```clojure
-
-
 tmducken.duckdb> (first (sql->datasets conn \"select * from stocks\"))
 _unnamed [560 3]:
 
@@ -779,29 +779,29 @@ _unnamed [5 3]:
 |   MSFT | 2000-04-01 | 28.37 |
 |   MSFT | 2000-05-01 | 25.45 |
 ```"
-  ([conn sql options]
-   (-> (run-query! conn sql options)
-       (results->datasets options)))
-  ([conn sql]
+  (^AutoCloseable [conn sql options]
+   (with-open [stmt (prepare conn sql options)] (stmt)))
+  (^AutoCloseable [conn sql]
    (sql->datasets conn sql nil)))
 
 
 (defn datasets->dataset
-  "Given a sequence of results return a single dataset.  This pathway relies on zero-copy-reduce
-  being false."
-  [results]
-  (let [dsdata (vec results)]
-    (if (== 1 (count dsdata))
-      ;;ensure things get cloned into jvm heap.
-      (dt/clone (dsdata 0))
-      (apply ds/concat dsdata))))
+  "Given a sequence of results return a single dataset.  This pathway relies on reduce-type being anything
+  other than `:zero-copy-imm`.  It is designed for and is most efficient when used with `:zero-copy`."
+  [^AutoCloseable results]
+  (resource/stack-resource-context
+   (let [dsdata (vec results)]
+     (if (== 1 (count dsdata))
+       ;;ensure things get cloned into jvm heap.
+       (dt/clone (dsdata 0))
+       (apply ds/concat dsdata)))))
 
 
 (defn sql->dataset
   "Execute a query returning a single dataset.  This runs the query in a context that releases the memory used
   for the result set before function returns returning a dataset that has no native bindings."
   ([conn sql options]
-   (datasets->dataset (sql->datasets conn sql (assoc options :zero-copy-reduce? true))))
+   (sql->datasets conn sql (assoc options :result-type :single)))
   ([conn sql] (sql->dataset conn sql nil)))
 
 
@@ -870,7 +870,7 @@ _unnamed [5 3]:
 
 (defn prepare
   "Create a prepared statement returning a clojure function you can call taking args specified
-  in the prepared statement.
+  in the prepared statement.  This function is auto-closeable which releases the prepared statement.
 .
   The function return value can be either a sequence of datasets or a single dataset.  For `:streaming`, the sequence
   is read from the result and has no count.  For `:realized` the sequence is of known length and the result
@@ -881,8 +881,10 @@ _unnamed [5 3]:
   will be released when either the sequence is exhausted or the return value is closed.
 
   In general datasets are copied into the JVM on a chunk-by-chunk basis.  If the user simply desires to reduce over
-  the sequence a zero-copy option is allowed where the dataset passed into the rf is based directly on the chunk
-  and the chunk is released immediately after the rf returns.
+  the return value the datasets are zero-copied during the reduction with an option to immediately release each dataset.
+
+  The prepared statement is both an IFn and AutoCloseable.  The return value of the IFn is AutoCloseable and does in fact
+  need to be closed.
 
   Options are passed through to dataset creation.
 
@@ -891,11 +893,62 @@ _unnamed [5 3]:
      - `:streaming` - uncountable supplier/sequence of datasets - auto-closeable.
      - `:realized` - all results realized, countable supplier/sequence of datasets - auto-closeable.
      - `:single` - results realized into a single dataset with chunks and result being immediately released.
-  * `:zero-copy-release?` - When the result is reduced, the dataset passed in is one directly
-    based on the duckdb chunk.  This is bit more efficient but means the user cannot let this dataset escape
-    the context of the rf - they have to clone it or process it completely."
-  ([conn sql] (prepare conn sql nil))
-  ([conn sql options]
+  * `:reduce-type - One of #{:clone :zero-copy-imm :zero-copy}` defaulting to `:clone`.  - When the result is
+     reduced the dataset is initially read via zero-copy directly from the result batch.  Then one of three things happen:
+     - `:clone` - dataset cloned and batch released just before rf - safest option and default.
+     - `:zero-copy-imm` - rf called with zero-copy dataset and batch released just after.  This is very memory and cpu efficient
+       but you need to ensure that no part of the dataset escapes rf.
+     - `:zero-copy` - Datasets are merely passed to rf and batch is not released but is registered with the resource system.  This
+     is used to efficiently concatenate the results into one dataset after which all batches are released.
+
+
+  Examples:
+
+```clojure
+user> (with-open [stmt (duckdb/prepare conn \"select * from stocks\" {:result-type :single})]
+        (stmt))
+_unnamed [560 3]:
+
+| symbol |       date |  price |
+|--------|------------|-------:|
+|   MSFT | 2000-01-01 |  39.81 |
+|   MSFT | 2000-02-01 |  36.35 |
+|   MSFT | 2000-03-01 |  43.22 |
+|   MSFT | 2000-04-01 |  28.37 |
+|   MSFT | 2000-05-01 |  25.45 |
+|   MSFT | 2000-06-01 |  32.54 |
+  ...
+
+user> (with-open [stmt (duckdb/prepare conn \"select * from stocks\" {:result-type :streaming})]
+        (stmt))
+#object[tmducken.duckdb.StreamingResultChunks 0x41912865 \"tmducken.duckdb.StreamingResultChunks@41912865\"]
+user> (seq *1)
+(_unnamed [560 3]:
+
+| symbol |       date |  price |
+|--------|------------|-------:|
+|   MSFT | 2000-01-01 |  39.81 |
+|   MSFT | 2000-02-01 |  36.35 |
+|   MSFT | 2000-03-01 |  43.22 |
+|   MSFT | 2000-04-01 |  28.37 |
+|   MSFT | 2000-05-01 |  25.45 |
+
+
+user> (with-open [stmt (duckdb/prepare conn \"select * from stocks\" {:result-type :streaming
+                                                                    :reduce-type :zero-copy})]
+        (resource/stack-resource-context (reduce (fn [acc ds] (+ acc (ds/row-count ds))) 0 (stmt))))
+560
+user> (with-open [stmt (duckdb/prepare conn \"select * from stocks\" {:result-type :streaming
+                                                                    :reduce-type :zero-copy-imm})]
+        (reduce (fn [acc ds] (+ acc (ds/row-count ds))) 0 (stmt)))
+560
+user> ;;BAD IDEA - dataset backing store is released before result is returned.
+user> (with-open [stmt (duckdb/prepare conn \"select * from stocks\" {:result-type :streaming
+                                                                    :reduce-type :zero-copy-imm})]
+        (reduce conj [] (stmt)))
+```"
+  (^AutoCloseable [conn sql] (prepare conn sql nil))
+  (^AutoCloseable [conn sql options]
    (let [stmt-ptr (dt-ffi/make-ptr :pointer 0)
          destroy-prep* (delay (duckdb-ffi/duckdb_destroy_prepare stmt-ptr))
          tval (duckdb-ffi/duckdb_prepare conn sql stmt-ptr)
@@ -948,13 +1001,14 @@ _unnamed [5 3]:
                                _ (resource/track result {:track-type :auto
                                                          :dispose-fn #(deref destroy-result*)})
                                options (if (identical? result-type :single)
-                                         (assoc options :zero-copy-reduce? false)
+                                         (assoc options :reduce-type :zero-copy)
                                          options)
                                res-data (results->datasets result destroy-result* options)]
                            (case result-type
                              :streaming res-data
                              :realized res-data
-                             :single (datasets->dataset res-data))))
+                             :single (with-open [res-data res-data]
+                                       (datasets->dataset res-data)))))
          n-params (long (duckdb-ffi/duckdb_nparams stmt))
          ;;Prepared statements have 1-based indexing (!!)
          param-types (mapv #(duckdb-ffi/duckdb_param_type stmt (+ 1 (long %))) (range n-params))]
