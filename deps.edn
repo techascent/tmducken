@@ -1,8 +1,7 @@
 {:paths ["src"]
- :deps {techascent/tech.ml.dataset {:mvn/version "7.000"}
+ :deps {techascent/tech.ml.dataset {:mvn/version "7.002"}
         techascent/tech.ml.dataset.sql {:mvn/version "7.000-beta-52"}
-        cnuernber/dtype-next {:mvn/version "10.004"}
-        net.java.dev.jna/jna {:mvn/version "5.9.0"}}
+        net.java.dev.jna/jna {:mvn/version "5.13.0"}}
  :aliases
  {:build
   {:deps {io.github.clojure/tools.build {:git/tag "v0.8.1" :git/sha "7d40500"}}
@@ -24,7 +23,7 @@
    :exec-fn codox.main/-main
    :exec-args {:group-id "com.techascent"
                :artifact-id "tmducken"
-               :version "0.8.1-06"
+               :version "0.8.1-07-SNAPSHOT"
                :name "TMDucken"
                :description "Clojure bindings for duckdb"
                :metadata {:doc/format :markdown}
