@@ -744,6 +744,8 @@ tmducken.duckdb> (get-config-options)
                               realize-chunk
                               reduce-type))))
 
+(declare prepare)
+
 
 (defn sql->datasets
   "Execute a query returning either a sequence of datasets or a single dataset.
