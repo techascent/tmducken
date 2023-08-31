@@ -11,6 +11,69 @@ parquet files as you don't need to navigate the
 [minefield of dependencies](https://techascent.github.io/tech.ml.dataset/tech.v3.libs.parquet.html)
 required to use parquet from Clojure.
 
+```clojure
+user> (require '[tech.v3.dataset :as ds])
+nil
+user> (def stocks
+        (ds/->dataset "https://github.com/techascent/tech.ml.dataset/raw/master/test/data/stocks.csv"
+                      {:key-fn keyword
+                       :dataset-name :stocks}))
+#'user/stocks
+user> (ds/head stocks)
+:stocks [5 3]:
+
+| :symbol |      :date | :price |
+|---------|------------|-------:|
+|    MSFT | 2000-01-01 |  39.81 |
+|    MSFT | 2000-02-01 |  36.35 |
+|    MSFT | 2000-03-01 |  43.22 |
+|    MSFT | 2000-04-01 |  28.37 |
+|    MSFT | 2000-05-01 |  25.45 |
+user> (require '[tmducken.duckdb :as duckdb])
+nil
+user> (duckdb/initialize!)
+Aug 31, 2023 8:50:21 AM clojure.tools.logging$eval5800$fn__5803 invoke
+INFO: Attempting to load duckdb from "./binaries/libduckdb.so"
+true
+user> (def db (duckdb/open-db))
+#'user/db
+user> (def conn (duckdb/connect db))
+#'user/conn
+user> (duckdb/create-table! conn stocks)
+"stocks"
+user> (duckdb/insert-dataset! conn stocks)
+560
+user> (ds/head (duckdb/sql->dataset conn \"select * from stocks\"))
+
+_unnamed [5 3]:
+
+| symbol |       date | price |
+|--------|------------|------:|
+|   MSFT | 2000-01-01 | 39.81 |
+|   MSFT | 2000-02-01 | 36.35 |
+|   MSFT | 2000-03-01 | 43.22 |
+|   MSFT | 2000-04-01 | 28.37 |
+|   MSFT | 2000-05-01 | 25.45 |
+user> (def stmt (duckdb/prepare conn \"select * from stocks\"))
+Aug 31, 2023 8:52:25 AM clojure.tools.logging$eval5800$fn__5803 invoke
+INFO: Reference thread starting
+#'user/stmt
+user> stmt
+#duckdb-prepared-statement-0[\"select * from stocks\"]
+user> (stmt)
+#duckdb-streaming-result[\"select * from stocks\"]
+user> (ds/head (first *1))
+_unnamed [5 3]:
+
+| symbol |       date | price |
+|--------|------------|------:|
+|   MSFT | 2000-01-01 | 39.81 |
+|   MSFT | 2000-02-01 | 36.35 |
+|   MSFT | 2000-03-01 | 43.22 |
+|   MSFT | 2000-04-01 | 28.37 |
+|   MSFT | 2000-05-01 | 25.45 |
+```
+
 
 * [API Documentation](https://techascent.github.io/tmducken/)
 
