@@ -29,9 +29,9 @@ user> (def conn (duckdb/connect db))
 #'user/conn
 user> (duckdb/create-table! conn stocks)
 \"stocks\"
-  user> (duckdb/insert-dataset! conn stocks)
-nil
-  user> (ds/head (duckdb/sql->dataset conn \"select * from stocks\"))
+user> (duckdb/insert-dataset! conn stocks)
+560
+user> (ds/head (duckdb/sql->dataset conn \"select * from stocks\"))
 
 _unnamed [5 3]:
 
@@ -55,11 +55,13 @@ _unnamed [5 3]:
             [tech.v3.datatype.unary-pred :as unary-pred]
             [tech.v3.datatype.datetime.base :as dt-dt-base]
             [tech.v3.datatype.datetime.constants :as dt-dt-constants]
+            [tech.v3.datatype.pprint :as dtype-pp]
             [tech.v3.resource :as resource]
             [tech.v3.dataset :as ds]
             [tech.v3.dataset.sql :as sql]
             [ham-fisted.api :as hamf]
             [ham-fisted.lazy-noncaching :as lznc]
+            [ham-fisted.reduce :as hamf-rf]
             [clojure.tools.logging :as log])
   (:import [java.nio.file Paths]
            [java.util Map Iterator ArrayList]
@@ -204,8 +206,10 @@ tmducken.duckdb> (get-config-options)
      (duckdb-ffi/duckdb_disconnect conn-ptr))))
 
 
-(defn- run-query!
-  (^AutoCloseable [conn sql options]
+(defn run-query!
+  "Run a query ignoring the results.  Useful for queries such as single-row insert or update where
+  you don't care about the results."
+  ([conn sql options]
    (let [query-res (dt-struct/new-struct :duckdb-result {:container-type :native-heap
                                                          :resource-type nil})
          success? (= (duckdb-ffi/duckdb_query conn (str sql) query-res)
@@ -219,12 +223,9 @@ tmducken.duckdb> (get-config-options)
        (let [error-msg (dt-ffi/c->string (Pointer. (query-res :error-message)))]
          @destroy-results*
          (throw (Exception. error-msg))))
-     (reify
-       AutoCloseable
-       (close [this] @destroy-results*)
-       IDeref
-       (deref [this] query-res))))
-  (^AutoCloseable [conn sql]
+     (deref destroy-results*)
+     :ok))
+  ([conn sql]
    (run-query! conn sql nil)))
 
 
@@ -240,7 +241,7 @@ tmducken.duckdb> (get-config-options)
   * `:primary-key` - sequence of column names to be used as the primary key."
   ([conn dataset options]
    (let [sql (sql/create-sql "duckdb" dataset)]
-     (with-open [result (run-query! conn sql)])
+     (run-query! conn sql)
      (sql/table-name dataset options)))
   ([conn dataset]
    (create-table! conn dataset nil)))
@@ -255,7 +256,7 @@ tmducken.duckdb> (get-config-options)
 (defn drop-table!
   [conn dataset]
   (let [ds-name (sql/table-name dataset)]
-    (with-open [result  (run-query! conn (format "drop table %s" ds-name))])
+    (run-query! conn (format "drop table %s" ds-name))
     ds-name))
 
 
@@ -428,6 +429,7 @@ tmducken.duckdb> (get-config-options)
                                                (.put stable sval (+ daddr bufoff)))))))))))))
              (check-error (duckdb-ffi/duckdb_append_data_chunk appender write-chunk))
              (duckdb-ffi/duckdb_data_chunk_reset write-chunk))))
+        n-rows
         (finally
           (let [ptrptr (dt-ffi/make-ptr :pointer (.address ^Pointer write-chunk))]
             (duckdb-ffi/duckdb_destroy_data_chunk ptrptr))
@@ -630,7 +632,8 @@ tmducken.duckdb> (get-config-options)
         (rf acc zc-ds)))))
 
 
-(deftype ^:private RealizedResultChunks [^long n-elems
+(deftype ^:private RealizedResultChunks [sql
+                                         ^long n-elems
                                          ^{:unsynchronized-mutable true
                                            :tag long} idx
                                          result
@@ -667,10 +670,16 @@ tmducken.duckdb> (get-config-options)
             (if (reduced? acc) @acc acc))))))
   ;;Non-chunked sequence pathway.
   Seqable
-  (seq [this] (supplier-seq this)))
+  (seq [this] (supplier-seq this))
+  Object
+  (toString [this] (str "#duckdb-realized-result-" n-elems "[\"" sql "\"]")))
 
 
-(deftype ^:private StreamingResultChunks [result
+(dtype-pp/implement-tostring-print RealizedResultChunks)
+
+
+(deftype ^:private StreamingResultChunks [sql
+                                          result
                                           destroy-result*
                                           realize-chunk
                                           reduce-type]
@@ -694,12 +703,16 @@ tmducken.duckdb> (get-config-options)
   Iterable
   (iterator [this] (SupplierIter. this (.get this)))
   Seqable
-  (seq [this] (supplier-seq this)))
+  (seq [this] (supplier-seq this))
+  Object
+  (toString [this] (str "#duckdb-streaming-result"  "[\"" sql "\"]")))
 
+
+(dtype-pp/implement-tostring-print StreamingResultChunks)
 
 
 (defn- results->datasets
-  ^AutoCloseable [duckdb-result destroy-result* options]
+  ^AutoCloseable [sql duckdb-result destroy-result* options]
   (let [metadata {:duckdb-result duckdb-result}
         n-cols (long (duckdb-ffi/duckdb_column_count duckdb-result))
         names (hamf/mapv #(dt-ffi/c->string (duckdb-ffi/duckdb_column_name duckdb-result %)) (hamf/range n-cols))
@@ -733,13 +746,15 @@ tmducken.duckdb> (get-config-options)
                                  (ds/new-dataset options (assoc metadata :data-chunk data-chunk))))))
         reduce-type (get options :reduce-type :clone)]
     (if (== 0 (long (duckdb-ffi/duckdb_result_is_streaming duckdb-result)))
-      (RealizedResultChunks. (duckdb-ffi/duckdb_result_chunk_count duckdb-result)
+      (RealizedResultChunks. sql
+                             (duckdb-ffi/duckdb_result_chunk_count duckdb-result)
                              0
                              duckdb-result
                              destroy-result*
                              realize-chunk
                              reduce-type)
-      (StreamingResultChunks. duckdb-result
+      (StreamingResultChunks. sql
+                              duckdb-result
                               destroy-result*
                               realize-chunk
                               reduce-type))))
@@ -782,21 +797,11 @@ _unnamed [5 3]:
 |   MSFT | 2000-05-01 | 25.45 |
 ```"
   (^AutoCloseable [conn sql options]
-   (with-open [stmt (prepare conn sql options)] (stmt)))
+   (with-open [^AutoCloseable stmt (prepare conn sql options)]
+     (stmt)))
   (^AutoCloseable [conn sql]
    (sql->datasets conn sql nil)))
 
-
-(defn datasets->dataset
-  "Given a sequence of results return a single dataset.  This pathway relies on reduce-type being anything
-  other than `:zero-copy-imm`.  It is designed for and is most efficient when used with `:zero-copy`."
-  [^AutoCloseable results]
-  (resource/stack-resource-context
-   (let [dsdata (vec results)]
-     (if (== 1 (count dsdata))
-       ;;ensure things get cloned into jvm heap.
-       (dt/clone (dsdata 0))
-       (apply ds/concat dsdata)))))
 
 
 (defn sql->dataset
@@ -869,14 +874,100 @@ _unnamed [5 3]:
     :else
     (throw (RuntimeException. (str "Unable to discern binding type for value: " v)))))
 
+
+(defn- statement->str
+  [n-args sql]
+  (str "#duckdb-prepared-statement-" n-args "[\"" sql "\"]"))
+
 ;;Deftype so we can overload the tostring method
-(deftype ZeroArgPrepStatemt [query destroy-stmt* finalizer]
+(deftype ^:private PrepStatement0 [sql destroy-prep* finalize-stmt]
   Object
-  (toString [this] (str "Prepared Statement: \"" query "\""))
+  (toString [this] (statement->str 0 sql))
   IFnDef
-  (invoke [this] (finalizer))
+  (invoke [this] (finalize-stmt))
   AutoCloseable
-  (close [this] @destroy-stmt*))
+  (close [this] @destroy-prep*))
+
+
+(dtype-pp/implement-tostring-print PrepStatement0)
+
+
+(deftype ^:private PrepStatement1 [sql stmt param-types destroy-prep* finalize-stmt]
+  Object
+  (toString [this] (statement->str 1 sql))
+  IFnDef
+  (invoke [this v0]
+    (bind-prepare-param stmt 1 (nth param-types 0) v0)
+    (finalize-stmt))
+  AutoCloseable
+  (close [this] @destroy-prep*))
+
+(dtype-pp/implement-tostring-print PrepStatement1)
+
+
+(deftype ^:private PrepStatement2 [sql stmt param-types destroy-prep* finalize-stmt]
+  Object
+  (toString [this] (statement->str 2 sql))
+  IFnDef
+  (invoke [this v0 v1]
+    (bind-prepare-param stmt 1 (nth param-types 0) v0)
+    (bind-prepare-param stmt 2 (nth param-types 1) v1)
+    (finalize-stmt))
+  AutoCloseable
+  (close [this] @destroy-prep*))
+
+
+(dtype-pp/implement-tostring-print PrepStatement2)
+
+
+(deftype ^:private PrepStatement3 [sql stmt param-types destroy-prep* finalize-stmt]
+  Object
+  (toString [this] (statement->str 3 sql))
+  IFnDef
+  (invoke [this v0 v1 v2]
+    (bind-prepare-param stmt 1 (nth param-types 0) v0)
+    (bind-prepare-param stmt 2 (nth param-types 1) v1)
+    (bind-prepare-param stmt 3 (nth param-types 2) v2)
+    (finalize-stmt))
+  AutoCloseable
+  (close [this] @destroy-prep*))
+
+
+(dtype-pp/implement-tostring-print PrepStatement3)
+
+
+(deftype ^:private PrepStatementN [sql stmt param-types destroy-prep* finalize-stmt]
+  Object
+  (toString [this] (statement->str (count param-types) sql))
+  IFnDef
+  (applyTo [this args]
+    (when-not (== (count param-types) (count args))
+      (throw (RuntimeException. (format "Prepared statement defined for %d parameters -- %d given"
+                                        (count param-types) (count args)))))
+    (reduce (hamf-rf/indexed-accum
+             acc idx v
+             (bind-prepare-param stmt (inc idx) (nth param-types idx) v))
+            nil
+            args)
+    (finalize-stmt))
+  AutoCloseable
+  (close [this] @destroy-prep*))
+
+
+(dtype-pp/implement-tostring-print PrepStatementN)
+
+
+(defn- datasets->dataset
+  "Given a sequence of results return a single dataset.  This pathway relies on reduce-type being anything
+  other than `:zero-copy-imm`.  It is designed for and is most efficient when used with `:zero-copy`."
+  [^AutoCloseable results]
+  (resource/stack-resource-context
+   (let [dsdata (vec results)]
+     (if (== 1 (count dsdata))
+       ;;ensure things get cloned into jvm heap.
+       (dt/clone (dsdata 0))
+       (apply ds/concat dsdata)))))
+
 
 
 (defn prepare
@@ -895,7 +986,7 @@ _unnamed [5 3]:
   In general datasets are copied into the JVM on a chunk-by-chunk basis.  If the user simply desires to reduce over
   the return value the datasets are can be zero-copied during the reduction with an option to immediately release
   each dataset.  It is extremely quick to clone the dataset into jvm heap storage, however, so please stick with
-  the defaults which are safe and memory efficient unless you have a very good reason to change them.
+  the defaults - which are safe and memory efficient - unless you have a very good reason to change them.
 
   Options are passed through to dataset creation.
 
@@ -916,52 +1007,24 @@ _unnamed [5 3]:
   Examples:
 
 ```clojure
-user> (with-open [stmt (duckdb/prepare conn \"select * from stocks\" {:result-type :single})]
-        (stmt))
-_unnamed [560 3]:
+user> (def stmt (duckdb/prepare conn \"select * from stocks\"))
+Aug 31, 2023 8:52:25 AM clojure.tools.logging$eval5800$fn__5803 invoke
+INFO: Reference thread starting
+#'user/stmt
+user> stmt
+#duckdb-prepared-statement-0[\"select * from stocks\"]
+user> (stmt)
+#duckdb-streaming-result[\"select * from stocks\"]
+user> (ds/head (first *1))
+_unnamed [5 3]:
 
-| symbol |       date |  price |
-|--------|------------|-------:|
-|   MSFT | 2000-01-01 |  39.81 |
-|   MSFT | 2000-02-01 |  36.35 |
-|   MSFT | 2000-03-01 |  43.22 |
-|   MSFT | 2000-04-01 |  28.37 |
-|   MSFT | 2000-05-01 |  25.45 |
-|   MSFT | 2000-06-01 |  32.54 |
-  ...
-
-user> (with-open [stmt (duckdb/prepare conn \"select * from stocks\" {:result-type :streaming})]
-        (stmt))
-#object[tmducken.duckdb.StreamingResultChunks 0x41912865 \"tmducken.duckdb.StreamingResultChunks@41912865\"]
-user> (seq *1)
-(_unnamed [560 3]:
-
-| symbol |       date |  price |
-|--------|------------|-------:|
-|   MSFT | 2000-01-01 |  39.81 |
-|   MSFT | 2000-02-01 |  36.35 |
-|   MSFT | 2000-03-01 |  43.22 |
-|   MSFT | 2000-04-01 |  28.37 |
-|   MSFT | 2000-05-01 |  25.45 |
-
-
-user> ;;zero-copy - each result will be held in memory.  This option is for when you want to
-user> ;;concatenate all the results into one thing and you need them all in memory at once.
-user> (with-open [stmt (duckdb/prepare conn \"select * from stocks\" {:result-type :streaming
-                                                                      :reduce-type :zero-copy})]
-        (resource/stack-resource-context (reduce (fn [acc ds] (+ acc (ds/row-count ds))) 0 (stmt))))
-560
-user> ;;Datasets are zero copied but release immediately when the reduction function returns. Users
-user> ;;must clone or otherwise completely release all references to the dataset before the reduction
-user> ;;function returns.
-user> (with-open [stmt (duckdb/prepare conn \"select * from stocks\" {:result-type :streaming
-                                                                      :reduce-type :zero-copy-imm})]
-        (reduce (fn [acc ds] (+ acc (ds/row-count ds))) 0 (stmt)))
-560
-user> ;;BAD IDEA - dataset backing store is released before result is returned.
-user> (with-open [stmt (duckdb/prepare conn \"select * from stocks\" {:result-type :streaming
-                                                                    :reduce-type :zero-copy-imm})]
-        (reduce conj [] (stmt)))
+| symbol |       date | price |
+|--------|------------|------:|
+|   MSFT | 2000-01-01 | 39.81 |
+|   MSFT | 2000-02-01 | 36.35 |
+|   MSFT | 2000-03-01 | 43.22 |
+|   MSFT | 2000-04-01 | 28.37 |
+|   MSFT | 2000-05-01 | 25.45 |
 ```"
   (^AutoCloseable [conn sql] (prepare conn sql nil))
   (^AutoCloseable [conn sql options]
@@ -1019,7 +1082,7 @@ user> (with-open [stmt (duckdb/prepare conn \"select * from stocks\" {:result-ty
                                options (if (identical? result-type :single)
                                          (assoc options :reduce-type :zero-copy)
                                          options)
-                               res-data (results->datasets result destroy-result* options)]
+                               res-data (results->datasets sql result destroy-result* options)]
                            (case result-type
                              :streaming res-data
                              :realized res-data
@@ -1029,67 +1092,31 @@ user> (with-open [stmt (duckdb/prepare conn \"select * from stocks\" {:result-ty
          ;;Prepared statements have 1-based indexing (!!)
          param-types (mapv #(duckdb-ffi/duckdb_param_type stmt (+ 1 (long %))) (range n-params))]
      (case n-params
-       0 (reify
-           java.lang.AutoCloseable
-           (close [this] @destroy-prep*)
-           IFnDef
-           (invoke [this] (finalize-stmt)))
-       1 (reify
-           java.lang.AutoCloseable
-           (close [this] @destroy-prep*)
-           IFnDef
-           (invoke [this v0]
-             (bind-prepare-param stmt 1 (nth param-types 0) v0)
-             (finalize-stmt)))
-       2 (reify
-           java.lang.AutoCloseable
-           (close [this] @destroy-prep*)
-           IFnDef
-           (invoke [this v0 v1]
-             (bind-prepare-param stmt 1 (nth param-types 0) v0)
-             (bind-prepare-param stmt 2 (nth param-types 1) v1)
-             (finalize-stmt)))
-       3 (reify
-           java.lang.AutoCloseable
-           (close [this] @destroy-prep*)
-           IFnDef
-           (invoke [this v0 v1 v2]
-             (bind-prepare-param stmt 1 (nth param-types 0) v0)
-             (bind-prepare-param stmt 2 (nth param-types 1) v1)
-             (bind-prepare-param stmt 3 (nth param-types 2) v2)
-             (finalize-stmt)))
-       (reify
-         java.lang.AutoCloseable
-         (close [this] @destroy-prep*)
-         IFnDef
-         (applyTo [this args]
-           (when-not (== (count args) n-params)
-             (throw (RuntimeException. (format "Prepared statement defined for %d parameters -- %d given"
-                                               n-params (count args)))))
-           (dorun (lznc/map-indexed #(bind-prepare-param stmt (inc %1) (nth param-types %1) %2)
-                                    args))
-           (finalize-stmt)))))))
+       0 (PrepStatement0. sql destroy-prep* finalize-stmt)
+       1 (PrepStatement1. sql stmt param-types destroy-prep* finalize-stmt)
+       2 (PrepStatement2. sql stmt param-types destroy-prep* finalize-stmt)
+       3 (PrepStatement3. sql stmt param-types destroy-prep* finalize-stmt)
+       (PrepStatementN. sql stmt param-types destroy-prep* finalize-stmt)))))
 
 
 (comment
   (do
     (def stocks
-      (-> (ds/->dataset "https://github.com/techascent/tech.ml.dataset/raw/master/test/data/stocks.csv" {:key-fn keyword})
-          (vary-meta assoc :name :stocks)))
+      (-> (ds/->dataset "https://github.com/techascent/tech.ml.dataset/raw/master/test/data/stocks.csv"
+                        {:key-fn keyword
+                         :dataset-name :stocks})))
     (initialize!)
     (def db (open-db))
     (def conn (connect db))
 
     (create-table! conn stocks)
     (insert-dataset! conn stocks))
-  (def res (run-query! conn "select * from stocks"))
 
   (def long-str-ds (ds/->dataset [{:a "one string longer than 12 characters" :b 1}
                                   {:a "another string longer than 12 characters" :b 2}]))
 
   (create-table! conn long-str-ds)
   (insert-dataset! conn long-str-ds)
-  (def res (run-query! conn "select * from _unnamed"))
 
 
   )
