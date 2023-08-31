@@ -72,6 +72,8 @@ _unnamed [5 3]:
            [tech.v3.datatype ObjectReader]
            [org.roaringbitmap RoaringBitmap]
            [clojure.lang Seqable IReduceInit Counted IDeref]
+           [tech.v3.dataset.impl.column Column]
+           [tech.v3.dataset.impl.dataset Dataset]
            [java.lang AutoCloseable]))
 
 
@@ -481,19 +483,18 @@ tmducken.duckdb> (get-config-options)
   tech.v3.datatype.protocols/PClone
   (clone [this]
     (let [ne (- eidx sidx)
-          ^objects sdata (make-array String ne)]
-      (hamf/pgroups
-       ne
-       (fn [^long group-sidx group-eidx]
-         (let [group-ne (- group-eidx group-sidx)
-               group-sidx (+ group-sidx sidx)]
-           (dotimes [idx group-ne]
-             (let [lidx (+ idx group-sidx)]
-               (aset sdata lidx (.invokePrim accessor lidx)))))))
+          ^objects sdata (make-array String ne)
+          gfn (fn [^long group-sidx group-eidx]
+                (let [group-ne (- group-eidx group-sidx)
+                      group-sidx (+ group-sidx sidx)]
+                  (dotimes [idx group-ne]
+                    (let [lidx (+ idx group-sidx)]
+                      (aset sdata lidx (.invokePrim accessor lidx))))))]
+      (dorun (hamf/pgroups ne gfn))
       (hamf/wrap-array sdata))))
 
 (defn- coldata->buffer
-  [^long n-rows ^long duckdb-type ^long data-ptr]
+  [^RoaringBitmap missing ^long n-rows ^long duckdb-type ^long data-ptr]
   (case (get duckdb-ffi/duckdb-type-map duckdb-type)
     :DUCKDB_TYPE_BOOLEAN
     (-> (native-buffer/wrap-address data-ptr n-rows nil)
@@ -570,15 +571,17 @@ tmducken.duckdb> (get-config-options)
       (StringReader.
        (reify IFnDef$LO
          (invokePrim [this idx]
-           (let [len-off (* idx string-t-width)
-                 slen (native-buffer/read-int nbuf len-off)]
-             #_(println "reading string at idx" idx len-off slen)
-             (if (<= slen inline-len)
-               (let [soff (+ len-off 4)]
-                 (String. (hamf/byte-array (dt/sub-buffer nbuf soff slen))))
-               (let [ptr-off (+ len-off 8)
-                     ptr-addr (native-buffer/read-long nbuf ptr-off)]
-                 (String. (hamf/byte-array (native-buffer/wrap-address ptr-addr slen nil))))))))
+           (if (.contains missing (unchecked-int idx))
+             ""
+             (let [len-off (* idx string-t-width)
+                   slen (native-buffer/read-int nbuf len-off)]
+               #_(println "reading string at idx" idx len-off slen)
+               (if (<= slen inline-len)
+                 (let [soff (+ len-off 4)]
+                   (native-buffer/native-buffer->string nbuf soff slen))
+                 (let [ptr-off (+ len-off 8)
+                       ptr-addr (native-buffer/read-long nbuf ptr-off)]
+                   (native-buffer/native-buffer->string (native-buffer/wrap-address ptr-addr slen nil))))))))
        0 n-rows))
     (throw (RuntimeException. (format "Failed to get a valid column type for integer type %d" duckdb-type)))))
 
@@ -616,20 +619,19 @@ tmducken.duckdb> (get-config-options)
 
 (defn- reduce-chunk
   [chunk realize-chunk reduce-type rf acc]
-  (let [zc-ds (realize-chunk chunk)]
-    (case reduce-type
-      :clone
-      (let [ds (dt/clone zc-ds)]
-        (destroy-chunk chunk)
-        (rf acc ds))
-      :zero-copy-imm
-      (try (rf acc zc-ds)
-           (finally
-             (destroy-chunk chunk)))
-      :zero-copy
-      (do
-        (track-chunk chunk)
-        (rf acc zc-ds)))))
+  (case reduce-type
+    :clone
+    (let [ds (realize-chunk chunk true)]
+      (destroy-chunk chunk)
+      (rf acc ds))
+    :zero-copy-imm
+    (try (rf acc (realize-chunk chunk false))
+         (finally
+           (destroy-chunk chunk)))
+    :zero-copy
+    (do
+      (track-chunk chunk)
+      (rf acc (realize-chunk chunk false)))))
 
 
 (deftype ^:private RealizedResultChunks [sql
@@ -645,11 +647,10 @@ tmducken.duckdb> (get-config-options)
   Supplier
   (get [this] (when (< idx n-elems)
                 (let [chunk (duckdb-ffi/duckdb_result_get_chunk result idx)
-                      chunk-ds (realize-chunk chunk)
-                      rv (dt/clone chunk-ds)]
+                      chunk-ds (realize-chunk chunk true)]
                   (destroy-chunk chunk)
                   (set! idx (unchecked-inc idx))
-                  rv)))
+                  chunk-ds)))
   Counted
   (count [this] n-elems)
   ;;Eduction-type pathways use iterable
@@ -688,7 +689,7 @@ tmducken.duckdb> (get-config-options)
   Supplier
   (get [this] (let [chunk (duckdb-ffi/duckdb_stream_fetch_chunk result)]
                 (when (and chunk (not (== 0 (.address ^Pointer chunk))))
-                  (let [ds (dt/clone (realize-chunk chunk))]
+                  (let [ds (realize-chunk chunk true)]
                     (destroy-chunk chunk)
                     ds))))
   ITypedReduce
@@ -723,27 +724,36 @@ tmducken.duckdb> (get-config-options)
                                (-> (dt-ffi/make-ptr :pointer (.address ^Pointer db-type))
                                    (duckdb-ffi/duckdb_destroy_logical_type))
                                retval)
-                         (hamf/range n-cols))
-        realize-chunk (fn [data-chunk]
+                            (hamf/range n-cols))
+        ;;This function gets called a *lot*
+        realize-chunk (fn [data-chunk clone?]
                         (try
-                          (let [n-rows (duckdb-ffi/duckdb_data_chunk_get_size data-chunk)]
-                            (->> (hamf/range n-cols)
-                                 (hamf/mapv (fn [cidx]
-                                              (let [vdata (duckdb-ffi/duckdb_data_chunk_get_vector data-chunk cidx)
-                                                    ^Pointer data-ptr (duckdb-ffi/duckdb_vector_get_data vdata)
-                                                    missing (duckdb-ffi/duckdb_vector_get_validity vdata)]
-                                                #:tech.v3.dataset {:name (names cidx)
-                                                                   :missing (validity->missing n-rows missing)
-                                                                   :data (coldata->buffer n-rows
-                                                                                          (type-ids cidx)
-                                                                                          (.-address data-ptr))
-                                                                   ;;skip any further scanning
-                                                                   :force-datatype? true})))
-                                 ;;we associate the data chunk with the dataset so that it is accurately
-                                 ;;tracked by the gc.  The datasets is mostly realized in place so the if the
-                                 ;;chunk goes away further reading from the dataset is likely to return incorrect
-                                 ;;results and or crash.
-                                 (ds/new-dataset options (assoc metadata :data-chunk data-chunk))))))
+                          (let [n-rows (duckdb-ffi/duckdb_data_chunk_get_size data-chunk)
+                                colmap (hamf/mut-map)
+                                key-fn (get options :key-fn identity)
+                                columns
+                                (->> (hamf/range n-cols)
+                                     (hamf/mapv (fn [cidx]
+                                                  (let [vdata (duckdb-ffi/duckdb_data_chunk_get_vector data-chunk cidx)
+                                                        ^Pointer data-ptr (duckdb-ffi/duckdb_vector_get_data vdata)
+                                                        missing (validity->missing
+                                                                 n-rows
+                                                                 (duckdb-ffi/duckdb_vector_get_validity vdata))
+                                                        coldata (coldata->buffer missing
+                                                                                 n-rows
+                                                                                 (type-ids cidx)
+                                                                                 (.-address data-ptr))
+                                                        cname (key-fn (names cidx))
+                                                        col
+                                                        (Column. missing
+                                                                 (if clone? (dt/clone coldata) coldata)
+                                                                 {:name cname}
+                                                                 nil)]
+                                                    (.put colmap cname cidx)
+                                                    col))))]
+                            (Dataset. columns (persistent! colmap) {:data-chunk data-chunk
+                                                                    :name :_unnamed}
+                                      0 0))))
         reduce-type (get options :reduce-type :clone)]
     (if (== 0 (long (duckdb-ffi/duckdb_result_is_streaming duckdb-result)))
       (RealizedResultChunks. sql
