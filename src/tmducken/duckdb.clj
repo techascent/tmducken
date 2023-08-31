@@ -869,29 +869,38 @@ _unnamed [5 3]:
     :else
     (throw (RuntimeException. (str "Unable to discern binding type for value: " v)))))
 
+;;Deftype so we can overload the tostring method
+(deftype ZeroArgPrepStatemt [query destroy-stmt* finalizer]
+  Object
+  (toString [this] (str "Prepared Statement: \"" query "\""))
+  IFnDef
+  (invoke [this] (finalizer))
+  AutoCloseable
+  (close [this] @destroy-stmt*))
+
 
 (defn prepare
   "Create a prepared statement returning a clojure function you can call taking args specified
-  in the prepared statement.  This function is auto-closeable which releases the prepared statement.
+  in the prepared statement.  This function is auto-closeable which releases the prepared statement - it is also
+  registered with the resource system so it will be released when it is no longer reachable by the gc system.
 .
   The function return value can be either a sequence of datasets or a single dataset.  For `:streaming`, the sequence
   is read from the result and has no count.  For `:realized` the sequence is of known length and the result
   is completely realized before the first dataset is read.  Finally you can have `single` which means
-  the system will return a single dataset.
+  the system will return a single dataset.  The default is `:streaming`.
 
-  In the cases where a sequence is returned, the object returned is auto-closeable and the query result itself
-  will be released when either the sequence is exhausted or the return value is closed.
+  In the cases where a sequence is returned, the object returned is auto-closeable result object itself will
+  be destroyed when the object is closed or when it is no longer reachable.
 
   In general datasets are copied into the JVM on a chunk-by-chunk basis.  If the user simply desires to reduce over
-  the return value the datasets are zero-copied during the reduction with an option to immediately release each dataset.
-
-  The prepared statement is both an IFn and AutoCloseable.  The return value of the IFn is AutoCloseable and does in fact
-  need to be closed.
+  the return value the datasets are can be zero-copied during the reduction with an option to immediately release
+  each dataset.  It is extremely quick to clone the dataset into jvm heap storage, however, so please stick with
+  the defaults which are safe and memory efficient unless you have a very good reason to change them.
 
   Options are passed through to dataset creation.
 
   Options:
-  * `:result-type` - one of `#{:streaming :realized :single}.
+  * `:result-type` - one of `#{:streaming :realized :single} with `:streaming` being the default.
      - `:streaming` - uncountable supplier/sequence of datasets - auto-closeable.
      - `:realized` - all results realized, countable supplier/sequence of datasets - auto-closeable.
      - `:single` - results realized into a single dataset with chunks and result being immediately released.
@@ -936,12 +945,17 @@ user> (seq *1)
 |   MSFT | 2000-05-01 |  25.45 |
 
 
+user> ;;zero-copy - each result will be held in memory.  This option is for when you want to
+user> ;;concatenate all the results into one thing and you need them all in memory at once.
 user> (with-open [stmt (duckdb/prepare conn \"select * from stocks\" {:result-type :streaming
-                                                                    :reduce-type :zero-copy})]
+                                                                      :reduce-type :zero-copy})]
         (resource/stack-resource-context (reduce (fn [acc ds] (+ acc (ds/row-count ds))) 0 (stmt))))
 560
+user> ;;Datasets are zero copied but release immediately when the reduction function returns. Users
+user> ;;must clone or otherwise completely release all references to the dataset before the reduction
+user> ;;function returns.
 user> (with-open [stmt (duckdb/prepare conn \"select * from stocks\" {:result-type :streaming
-                                                                    :reduce-type :zero-copy-imm})]
+                                                                      :reduce-type :zero-copy-imm})]
         (reduce (fn [acc ds] (+ acc (ds/row-count ds))) 0 (stmt)))
 560
 user> ;;BAD IDEA - dataset backing store is released before result is returned.
