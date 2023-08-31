@@ -991,7 +991,7 @@ _unnamed [5 3]:
   Options are passed through to dataset creation.
 
   Options:
-  * `:result-type` - one of `#{:streaming :realized :single} with `:streaming` being the default.
+  * `:result-type` - one of `#{:streaming :realized :single}` - defaulting to `:streaming`.
      - `:streaming` - uncountable supplier/sequence of datasets - auto-closeable.
      - `:realized` - all results realized, countable supplier/sequence of datasets - auto-closeable.
      - `:single` - results realized into a single dataset with chunks and result being immediately released.
