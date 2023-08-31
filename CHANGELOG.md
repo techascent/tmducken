@@ -1,3 +1,7 @@
+## 0.8.1-09
+ * Many serious perf improvements benchmarking loading a very large dataset.  System appears to
+   be running beautifully.
+ 
 ## 0.8.1-06
  * Initial prepared statement support.
  
