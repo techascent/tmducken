@@ -23,7 +23,7 @@
    :exec-fn codox.main/-main
    :exec-args {:group-id "com.techascent"
                :artifact-id "tmducken"
-               :version "0.8.1-07"
+               :version "0.8.1-08"
                :name "TMDucken"
                :description "Clojure bindings for duckdb"
                :metadata {:doc/format :markdown}
