@@ -984,7 +984,7 @@ _unnamed [5 3]:
   "Create a prepared statement returning a clojure function you can call taking args specified
   in the prepared statement.  This function is auto-closeable which releases the prepared statement - it is also
   registered with the resource system so it will be released when it is no longer reachable by the gc system.
-.
+
   The function return value can be either a sequence of datasets or a single dataset.  For `:streaming`, the sequence
   is read from the result and has no count.  For `:realized` the sequence is of known length and the result
   is completely realized before the first dataset is read.  Finally you can have `single` which means
@@ -994,7 +994,7 @@ _unnamed [5 3]:
   be destroyed when the object is closed or when it is no longer reachable.
 
   In general datasets are copied into the JVM on a chunk-by-chunk basis.  If the user simply desires to reduce over
-  the return value the datasets are can be zero-copied during the reduction with an option to immediately release
+  the return value the datasets can be zero-copied during the reduction with an option to immediately release
   each dataset.  It is extremely quick to clone the dataset into jvm heap storage, however, so please stick with
   the defaults - which are safe and memory efficient - unless you have a very good reason to change them.
 
