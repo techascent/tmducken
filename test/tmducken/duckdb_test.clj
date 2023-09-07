@@ -133,3 +133,25 @@
       (try
         (duckdb/drop-table! @conn* "testdb")
         (catch Throwable e nil)))))
+
+(deftest insert-test
+  #_(println "========================================")
+  #_(println "insert-test")
+  (let [cn 4
+        rn 1024
+        ds-fn #(-> (into {} (for [i (range cn)] [(str "c" i)
+                                                 (for [_ (range rn)] (str (random-uuid)))]))
+                   (ds/->dataset {:dataset-name "t"})
+                   (ds/select-columns (for [i (range cn)] (str "c" i))))]
+    #_(println "drop-table!")
+    (try
+      (duckdb/drop-table! @conn* "t")
+      (catch Throwable e nil))
+    (duckdb/create-table! @conn* (ds-fn))
+    #_(println "insert-dataset! (first)")
+    (duckdb/insert-dataset! @conn* (ds-fn))
+    #_(println "insert-dataset! (second)")
+    (duckdb/insert-dataset! @conn* (ds-fn))
+    #_(println "insert-dataset! (sql->dataset)")
+    (is (= (* 2 rn) (-> (duckdb/sql->dataset @conn* "from t")
+                        (ds/row-count))))))
