@@ -68,6 +68,7 @@ _unnamed [5 3]:
            [java.util.function Supplier]
            [java.time LocalDate LocalTime Instant]
            [tech.v3.datatype.ffi Pointer]
+           [tech.v3.datatype UnsafeUtil]
            [ham_fisted ITypedReduce IFnDef$LO Casts IFnDef]
            [tech.v3.datatype ObjectReader]
            [org.roaringbitmap RoaringBitmap]
@@ -414,21 +415,20 @@ tmducken.duckdb> (get-config-options)
                                                (let [idx (+ sidx idx)
                                                      sval (str (subcol idx))]
                                                  (if-let [init-addr (.get stable sval)]
-                                                   (dt/copy! (wrap-addr init-addr 16 :uint8)
-                                                             (dt/sub-buffer nbuf (* 16 idx) 16))
+                                                   (UnsafeUtil/copyBytes (long init-addr) (+ daddr (* 16 idx)) 16)
                                                    (let [bval (.getBytes sval)
                                                          slen (alength bval)
                                                          bufoff (* 16 idx)]
                                                      (native-buffer/write-int nbuf bufoff slen)
                                                      (if (<= slen 12)
                                                        (let [bufoff (+ bufoff 4)]
-                                                         (dt/copy! bval (dt/sub-buffer nbuf bufoff slen)))
+                                                         (UnsafeUtil/copyBytes bval (+ daddr bufoff) slen))
                                                        (let [bufoff (+ bufoff 8)
                                                              valbuf (native-buffer/malloc slen {:resource-type nil
                                                                                                 :uninitialized? true})
                                                              _ (locking string-allocs (.add string-allocs valbuf))
                                                              bufaddr (ptr->addr valbuf)]
-                                                         (dt/copy! bval valbuf)
+                                                         (UnsafeUtil/copyBytes bval bufaddr slen)
                                                          (native-buffer/write-long nbuf bufoff bufaddr)))
                                                      (.put stable sval (+ daddr bufoff))))))))))))))
              ;;Force all parallelization requests to finish by now.
