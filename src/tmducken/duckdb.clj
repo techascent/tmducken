@@ -405,30 +405,30 @@ tmducken.duckdb> (get-config-options)
                    (:string :text)
                    (let [stable (hamf/java-concurrent-hashmap)
                          nbuf (wrap-addr daddr (* 16 row-count) :int8)]
-                     (hamf/pgroups row-count
-                                   (fn [^long sidx ^long eidx]
-                                     (let [ne (- eidx sidx)]
-                                       (dotimes [idx ne]
-                                         (let [idx (+ sidx idx)
-                                               sval (str (subcol idx))]
-                                           (if-let [init-addr (.get stable sval)]
-                                             (dt/copy! (wrap-addr init-addr 16 :uint8)
-                                                       (dt/sub-buffer nbuf (* 16 idx) 16))
-                                             (let [bval (.getBytes sval)
-                                                   slen (alength bval)
-                                                   bufoff (* 16 idx)]
-                                               (native-buffer/write-int nbuf bufoff slen)
-                                               (if (<= slen 12)
-                                                 (let [bufoff (+ bufoff 4)]
-                                                   (dt/copy! bval (dt/sub-buffer nbuf bufoff slen)))
-                                                 (let [bufoff (+ bufoff 8)
-                                                       valbuf (native-buffer/malloc slen {:resource-type nil
-                                                                                          :uninitialized? true})
-                                                       _ (locking string-allocs (.add string-allocs valbuf))
-                                                       bufaddr (ptr->addr valbuf)]
-                                                   (dt/copy! bval valbuf)
-                                                   (native-buffer/write-long nbuf bufoff bufaddr)))
-                                               (.put stable sval (+ daddr bufoff)))))))))))))
+                     (dorun (hamf/pgroups row-count
+                                          (fn [^long sidx ^long eidx]
+                                            (let [ne (- eidx sidx)]
+                                              (dotimes [idx ne]
+                                                (let [idx (+ sidx idx)
+                                                      sval (str (subcol idx))]
+                                                  (if-let [init-addr (.get stable sval)]
+                                                    (dt/copy! (wrap-addr init-addr 16 :uint8)
+                                                              (dt/sub-buffer nbuf (* 16 idx) 16))
+                                                    (let [bval (.getBytes sval)
+                                                          slen (alength bval)
+                                                          bufoff (* 16 idx)]
+                                                      (native-buffer/write-int nbuf bufoff slen)
+                                                      (if (<= slen 12)
+                                                        (let [bufoff (+ bufoff 4)]
+                                                          (dt/copy! bval (dt/sub-buffer nbuf bufoff slen)))
+                                                        (let [bufoff (+ bufoff 8)
+                                                              valbuf (native-buffer/malloc slen {:resource-type nil
+                                                                                                 :uninitialized? true})
+                                                              _ (locking string-allocs (.add string-allocs valbuf))
+                                                              bufaddr (ptr->addr valbuf)]
+                                                          (dt/copy! bval valbuf)
+                                                          (native-buffer/write-long nbuf bufoff bufaddr)))
+                                                      (.put stable sval (+ daddr bufoff))))))))))))))
              (check-error (duckdb-ffi/duckdb_append_data_chunk appender write-chunk))
              (duckdb-ffi/duckdb_data_chunk_reset write-chunk))))
         n-rows
