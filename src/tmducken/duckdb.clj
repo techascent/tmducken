@@ -64,7 +64,7 @@ _unnamed [5 3]:
             [ham-fisted.reduce :as hamf-rf]
             [clojure.tools.logging :as log])
   (:import [java.nio.file Paths]
-           [java.util Map Iterator ArrayList]
+           [java.util Map Iterator ArrayList UUID]
            [java.util.function Supplier]
            [java.time LocalDate LocalTime Instant]
            [tech.v3.datatype.ffi Pointer]
@@ -254,6 +254,8 @@ tmducken.duckdb> (get-config-options)
                            sql/generic-sql->column sql/generic-column->sql)
 (sql/set-datatype-mapping! "duckdb" :string "varchar" 12
                            sql/generic-sql->column sql/generic-column->sql)
+(sql/set-datatype-mapping! "duckdb" :uuid "UUID" 1111
+                           sql/generic-sql->column sql/generic-column->sql)
 
 
 (defn drop-table!
@@ -288,7 +290,8 @@ tmducken.duckdb> (get-config-options)
     :local-date duckdb-ffi/DUCKDB_TYPE_DATE
     :local-time duckdb-ffi/DUCKDB_TYPE_TIME
     :instant duckdb-ffi/DUCKDB_TYPE_TIMESTAMP
-    :string duckdb-ffi/DUCKDB_TYPE_VARCHAR))
+    :string duckdb-ffi/DUCKDB_TYPE_VARCHAR
+    :uuid duckdb-ffi/DUCKDB_TYPE_UUID))
 
 
 (defn- ptr->addr
@@ -402,6 +405,22 @@ tmducken.duckdb> (get-config-options)
                                                           (packing/pack subcol)
                                                           subcol)
                                                         (wrap-addr daddr (* 8 row-count) :int64))
+                   :uuid (let [us (UnsafeUtil/getUnsafe)]
+                           (.add reduce-groups
+                                 (hamf/pgroups
+                                  row-count
+                                  (fn [^long sidx ^long eidx]
+                                    (let [ne (- eidx sidx)]
+                                      (dotimes [idx ne]
+                                        (let [laddr (+ (* 16 idx) daddr)
+                                              ^UUID uuid (subcol (+ idx sidx))]
+                                          (if uuid
+                                            (do
+                                              (.putLong us laddr (.getLeastSignificantBits uuid))
+                                              (.putLong us (+ laddr 8) (.getMostSignificantBits uuid)))
+                                            (do
+                                              (.putLong us laddr 0)
+                                              (.putLong us (+ laddr 8) 0))))))))))
                    ;;We cache strings per-column per-chunk as the translation into duckdb structures is tedious.
                    ;;This is also why we clean up resources per-chunk.
                    (:string :text)
@@ -476,16 +495,16 @@ tmducken.duckdb> (get-config-options)
     (delay (dt/clone this))))
 
 
-(deftype ^:private StringReader [^IFnDef$LO accessor ^long sidx ^long eidx]
+(deftype ^:private GenericObjReader [dtype cls-type ^IFnDef$LO accessor ^long sidx ^long eidx]
   ObjectReader
-  (elemwiseDatatype [this] :string)
+  (elemwiseDatatype [this] dtype)
   (lsize [this] (- eidx sidx))
   (readObject [this idx] (.invokePrim accessor (+ sidx idx)))
   (subBuffer [this ssidx seidx]
     (if (and (== sidx ssidx)
              (== eidx seidx))
       this
-      (StringReader. accessor (+ ssidx sidx) (+ sidx seidx))))
+      (GenericObjReader. dtype cls-type accessor (+ ssidx sidx) (+ sidx seidx))))
   (cloneList [this] (dt/clone this))
   (reduce [this rfn acc]
     (loop [idx sidx
@@ -496,7 +515,7 @@ tmducken.duckdb> (get-config-options)
   PDelayedClone
   (delayed-clone [this]
     (let [ne (- eidx sidx)
-          ^objects sdata (make-array String ne)
+          ^objects sdata (make-array cls-type ne)
           gfn (fn [^long group-sidx group-eidx]
                 (let [group-ne (- group-eidx group-sidx)
                       group-sidx (+ group-sidx sidx)]
@@ -510,6 +529,9 @@ tmducken.duckdb> (get-config-options)
   tech.v3.datatype.protocols/PClone
   (clone [this]
     @(delayed-clone this)))
+
+
+(deftype ^:private UUIDReader [])
 
 (defn- coldata->buffer
   [^RoaringBitmap missing ^long n-rows ^long duckdb-type ^long data-ptr]
@@ -569,6 +591,17 @@ tmducken.duckdb> (get-config-options)
     (-> (native-buffer/wrap-address data-ptr (* 8 n-rows) nil)
         (native-buffer/set-native-datatype :packed-instant))
 
+    :DUCKDB_TYPE_UUID
+    (GenericObjReader.
+     :uuid UUID
+     (let [us (UnsafeUtil/getUnsafe)]
+       (reify IFnDef$LO
+         (invokePrim [this idx]
+           (let [laddr (+ data-ptr (* idx 16))]
+             (UUID. (.getLong us (+ laddr 8))
+                    (.getLong us laddr))))))
+     0 n-rows)
+
     :DUCKDB_TYPE_VARCHAR
     ;;     typedef struct {
     ;; 	union {
@@ -586,7 +619,8 @@ tmducken.duckdb> (get-config-options)
     (let [string-t-width 16
           inline-len 12
           nbuf (native-buffer/wrap-address data-ptr (* string-t-width n-rows) nil)]
-      (StringReader.
+      (GenericObjReader.
+       :string String
        (reify IFnDef$LO
          (invokePrim [this idx]
            (if (.contains missing (unchecked-int idx))

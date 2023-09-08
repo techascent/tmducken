@@ -40,7 +40,7 @@
                      :doubles (double-array (range 10))
                      :strings (map str (range 10))
                      ;; :text (map (comp #(Text. %) str) (range 10))
-                     ;; :uuids (repeatedly 10 #(UUID/randomUUID))
+                     :uuids (repeatedly 10 #(UUID/randomUUID))
                      :instants (repeatedly 10 dtype-dt/instant)
                      ;;sql doesn't support dash-case
                      :local_dates (repeatedly 10 dtype-dt/local-date)
