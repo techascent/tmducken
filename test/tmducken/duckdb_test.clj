@@ -1,6 +1,7 @@
 (ns tmducken.duckdb-test
   (:require [clojure.test :refer [deftest is]]
             [tmducken.duckdb :as duckdb]
+            [tmducken.duckdb.ffi :as duckdb-ffi]
             [tech.v3.dataset :as ds]
             [tech.v3.datatype.functional :as dfn]
             [tech.v3.datatype.datetime :as dtype-dt]
@@ -135,23 +136,33 @@
         (catch Throwable e nil)))))
 
 (deftest insert-test
-  #_(println "========================================")
-  #_(println "insert-test")
   (let [cn 4
         rn 1024
         ds-fn #(-> (into {} (for [i (range cn)] [(str "c" i)
                                                  (for [_ (range rn)] (str (random-uuid)))]))
                    (ds/->dataset {:dataset-name "t"})
                    (ds/select-columns (for [i (range cn)] (str "c" i))))]
-    #_(println "drop-table!")
     (try
       (duckdb/drop-table! @conn* "t")
       (catch Throwable e nil))
     (duckdb/create-table! @conn* (ds-fn))
-    #_(println "insert-dataset! (first)")
     (duckdb/insert-dataset! @conn* (ds-fn))
-    #_(println "insert-dataset! (second)")
     (duckdb/insert-dataset! @conn* (ds-fn))
-    #_(println "insert-dataset! (sql->dataset)")
+    (is (= (* 2 rn) (-> (duckdb/sql->dataset @conn* "from t")
+                        (ds/row-count))))))
+
+(deftest insert-chunk-size-test
+  (let [cn 4
+        rn (duckdb-ffi/duckdb_vector_size)
+        ds-fn #(-> (into {} (for [i (range cn)] [(str "c" i)
+                                                 (for [_ (range rn)] (str (random-uuid)))]))
+                   (ds/->dataset {:dataset-name "t"})
+                   (ds/select-columns (for [i (range cn)] (str "c" i))))]
+    (try
+      (duckdb/drop-table! @conn* "t")
+      (catch Throwable e nil))
+    (duckdb/create-table! @conn* (ds-fn))
+    (duckdb/insert-dataset! @conn* (ds-fn))
+    (duckdb/insert-dataset! @conn* (ds-fn))
     (is (= (* 2 rn) (-> (duckdb/sql->dataset @conn* "from t")
                         (ds/row-count))))))
