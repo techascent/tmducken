@@ -5,6 +5,7 @@
 
   * boolean, all numeric types int8->int64, uint8->uint64, float32, float64.
   * string
+  * uuid
   * LocalDate, Instant column types.
 
 

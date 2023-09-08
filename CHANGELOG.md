@@ -1,3 +1,6 @@
+## 0.8.1-12
+ * Two insert issues fixed and uuid support.
+
 ## 0.8.1-11
  * Optimization for very large (> 128 chars) strings.
 
