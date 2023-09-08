@@ -155,7 +155,7 @@
   (let [cn 4
         rn (duckdb-ffi/duckdb_vector_size)
         ds-fn #(-> (into {} (for [i (range cn)] [(str "c" i)
-                                                 (for [_ (range rn)] (str (random-uuid)))]))
+                                                 (for [_ (range rn)] (random-uuid))]))
                    (ds/->dataset {:dataset-name "t"})
                    (ds/select-columns (for [i (range cn)] (str "c" i))))]
     (try

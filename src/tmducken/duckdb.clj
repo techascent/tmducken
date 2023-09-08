@@ -343,7 +343,7 @@ tmducken.duckdb> (get-config-options)
           ;;stack resource context is mainly for the string values.
           (resource/stack-resource-context
            (let [row-offset (* chunk chunk-size)
-                 row-count (rem n-rows chunk-size)
+                 row-count (min chunk-size (- n-rows row-offset))
                  n-valid (quot (+ row-count 63) 64)
                  string-allocs (ArrayList.)
                  reduce-groups (ArrayList.)]
@@ -666,7 +666,8 @@ tmducken.duckdb> (get-config-options)
 
 (defn- destroy-chunk
   [chunk]
-  (duckdb-ffi/duckdb_destroy_data_chunk (dt-ffi/make-ptr :pointer (.address ^Pointer chunk))))
+  (when (and chunk (not (== 0 (.address ^Pointer chunk))))
+    (duckdb-ffi/duckdb_destroy_data_chunk (dt-ffi/make-ptr :pointer (.address ^Pointer chunk)))))
 
 
 (defn- reduce-chunk
@@ -752,7 +753,9 @@ tmducken.duckdb> (get-config-options)
                  (not (== 0 (.address ^Pointer chunk)))
                  (not (reduced? acc)))
           (recur (reduce-chunk chunk realize-chunk reduce-type rfn acc))
-          (if (reduced? acc) @acc acc)))))
+          (do
+            (destroy-chunk chunk)
+            (if (reduced? acc) @acc acc))))))
   Iterable
   (iterator [this] (SupplierIter. this (.get this)))
   Seqable
