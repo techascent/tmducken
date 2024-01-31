@@ -97,6 +97,26 @@ user in data form there is no advantage to using apache arrow as a query result.
 
 ## Usage
 
+### Preferred method (Nix)
+
+You can get a jar for your own OS (Linux/MacOS) with duckdb included by [installing Nix](https://github.com/DeterminateSystems/nix-installer),
+then running:
+
+``` console
+$ nix build github:schemamap/tmducken
+
+$ uname -s -p
+Darwin arm
+
+$ jar tf result/tmducken.jar | grep libduckdb.dylib
+darwin-aarch64/libduckdb.dylib
+```
+
+You can include this in your deps.edn via: `{:local/root "result/tmducken.jar"}`
+With this method, you can invoke `(duckdb/initialize!)` normally and it will load the shared library automatically.
+
+### Manual method
+
 First, download binaries and set either install then into your
 system path or set the DUCKDB_HOME environment variable to where
 the shared library is installed - see [enable-duckdb](scripts/enable-duckdb)

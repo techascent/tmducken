@@ -9,3 +9,11 @@ pom.xml
 *.asc
 
 data.csv
+
+.direnv
+
+# symlinked in by the Nix flake
+lib
+
+# `nix build` result
+result
