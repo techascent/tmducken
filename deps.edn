@@ -1,4 +1,4 @@
-{:paths ["src"]
+{:paths ["src" "lib"]
  :deps {techascent/tech.ml.dataset {:mvn/version "7.006"}
         techascent/tech.ml.dataset.sql {:mvn/version "7.000-beta-52"}
         cnuernber/dtype-next {:mvn/version "10.011"}

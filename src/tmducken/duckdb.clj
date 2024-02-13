@@ -105,14 +105,14 @@ _unnamed [5 3]:
             (when-not is-init?
               (let [duckdb-home (or duckdb-home
                                     (System/getenv "DUCKDB_HOME")
-                                    "./binaries")
+                                    (str "/" com.sun.jna.Platform/RESOURCE_PREFIX))
                     libpath (if-not (empty? duckdb-home)
                               (str (Paths/get duckdb-home
                                               (into-array String [(System/mapLibraryName "duckdb")])))
                               "duckdb")]
                 (if libpath
                   (log/infof "Attempting to load duckdb from \"%s\"" libpath)
-                  (log/infof "Attempting to load in-process duckdb" libpath))
+                  (log/info "Attempting to load in-process duckdb"))
                 (duckdb-ffi/define-datatypes!)
                 (dt-ffi/library-singleton-set! duckdb-ffi/lib libpath)))
             true)))
@@ -1182,7 +1182,9 @@ _unnamed [5 3]:
       (-> (ds/->dataset "https://github.com/techascent/tech.ml.dataset/raw/master/test/data/stocks.csv"
                         {:key-fn keyword
                          :dataset-name :stocks})))
+
     (initialize!)
+
     (def db (open-db))
     (def conn (connect db))
 

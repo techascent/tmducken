@@ -97,6 +97,26 @@ user in data form there is no advantage to using apache arrow as a query result.
 
 ## Usage
 
+### Preferred method (Nix)
+
+You can get a jar for your own OS (Linux/MacOS) with duckdb included by [installing Nix](https://github.com/DeterminateSystems/nix-installer),
+then running:
+
+``` console
+$ nix build github:techascent/tmducken
+
+$ uname -s -p
+Darwin arm
+
+$ jar tf result/tmducken.jar | grep libduckdb.dylib
+darwin-aarch64/libduckdb.dylib
+```
+
+You can include this in your deps.edn via: `{:local/root "result/tmducken.jar"}`
+With this method, you can invoke `(duckdb/initialize!)` normally and it will load the shared library automatically.
+
+### Manual method
+
 First, download binaries and set either install then into your
 system path or set the DUCKDB_HOME environment variable to where
 the shared library is installed - see [enable-duckdb](scripts/enable-duckdb)
@@ -110,6 +130,14 @@ Next, you should be able to call [initialize!](https://techascent.github.io/tmdu
 in the duckdb namespace.  Be sure to read the [namespace documentation](https://techascent.github.io/tmducken/tmducken.duckdb.html)
 and perhaps peruse the [unit tests](test/tmducken/duckdb_test.clj).
 
+## Developing
+
+Whenever the `deps.edn` file changes, you have to run `deps-lock`, as provided by the `nix shell`.
+For more details see: https://jlesquembre.github.io/clj-nix/lock-file/
+
+Not doing so fails local Nix builds (`nix build`) by trying to fetch dependencies in a non-network build environment.
+
+Alternative CI-based solution to the above: https://jlesquembre.github.io/clj-nix/github-action/
 
 ## License
 
