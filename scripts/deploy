@@ -6,6 +6,7 @@ set -e
 
 clj -M:test
 clj -X:codox
+rm -rf pom.xml
 clj -T:build jar
 cp target/classes/META-INF/maven/com.techascent/tmducken/pom.xml .
 clj -X:deploy

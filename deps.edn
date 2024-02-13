@@ -5,7 +5,7 @@
         net.java.dev.jna/jna {:mvn/version "5.13.0"}}
  :aliases
  {:build
-  {:deps {io.github.clojure/tools.build {:git/tag "v0.8.1" :git/sha "7d40500"}}
+  {:deps {io.github.clojure/tools.build {:git/tag "v0.9.6" :git/sha "8e78bcc"}}
    :ns-default build}
   :test
   {:extra-deps {com.cognitect/test-runner
@@ -24,7 +24,7 @@
    :exec-fn codox.main/-main
    :exec-args {:group-id "com.techascent"
                :artifact-id "tmducken"
-               :version "0.8.1-12"
+               :version "0.8.1-13"
                :name "TMDucken"
                :description "Clojure bindings for duckdb"
                :metadata {:doc/format :markdown}

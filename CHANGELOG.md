@@ -1,3 +1,7 @@
+## 0.8.1-13
+ * Errors are [correctly reported for prepared statements](https://github.com/techascent/tmducken/pull/16).
+ * Support for [packaging the binary in the jar using nix](https://github.com/techascent/tmducken/pull/15).
+ 
 ## 0.8.1-12
  * Two insert issues fixed and uuid support.
 
