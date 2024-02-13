@@ -1111,7 +1111,7 @@ _unnamed [5 3]:
          stmt (Pointer. (long (stmt-ptr 0)))
          _   (when-not (== 0 tval)
                (let [errptr (duckdb-ffi/duckdb_prepare_error stmt)
-                     errors (when errptr
+                     errors (if errptr
                               (dt-ffi/c->string errptr)
                               "Unknown Error")]
                  @destroy-prep*
