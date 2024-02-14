@@ -236,7 +236,7 @@ tmducken.duckdb> (get-config-options)
 (defn create-table!
   "Create an sql table based off of the column datatypes of the dataset.  Note that users
   can also call [[execute-query!]] with their own sql create-table string.  Note that the
-  fastest way to get data into the system is [[append-dataset!]].
+  fastest way to get data into the system is [[insert-dataset!]].
 
   Options:
 
