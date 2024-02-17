@@ -166,3 +166,16 @@
     (duckdb/insert-dataset! @conn* (ds-fn))
     (is (= (* 2 rn) (-> (duckdb/sql->dataset @conn* "from t")
                         (ds/row-count))))))
+
+
+(deftest insert-transpose-columns
+  (let [ds (vary-meta (ds/->dataset {:a [1 2 3] :b ["x" "y" "z"]})
+                      assoc :name :transpose-table)]
+    (try
+      (duckdb/drop-table! @conn* ds)
+      (catch Throwable e nil))
+    (duckdb/create-table! @conn* ds)
+    (duckdb/insert-dataset! @conn* ds)
+    (duckdb/insert-dataset! @conn* (ds/select-columns ds [:b :a]))
+    
+    ))
