@@ -47,7 +47,8 @@
                      :local_dates (repeatedly 10 dtype-dt/local-date)
                      ;;some sql engines (or the jdbc api) don't support more than second
                      ;;resolution for sql time objects
-                     :local_times (->> (repeatedly 10 dtype-dt/local-time))})
+                     :local_times (->> (repeatedly 10 dtype-dt/local-time))
+                     })
       (vary-meta assoc
                  :primary-key :longs
                  :name :testtable)))
