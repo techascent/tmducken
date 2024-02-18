@@ -8,82 +8,60 @@
            [tech.v3.datatype.ffi Pointer]))
 
 
+(defmacro define-long-enums
+  []
+  (let [[stmts offset typemap]
+        (->>
+        '[[DUCKDB_TYPE_INVALID 0] ;;starts at zero
+	  DUCKDB_TYPE_BOOLEAN
+	  DUCKDB_TYPE_TINYINT
+	  DUCKDB_TYPE_SMALLINT
+	  DUCKDB_TYPE_INTEGER
+	  DUCKDB_TYPE_BIGINT
+	  DUCKDB_TYPE_UTINYINT
+	  DUCKDB_TYPE_USMALLINT
+	  DUCKDB_TYPE_UINTEGER
+	  DUCKDB_TYPE_UBIGINT
+	  DUCKDB_TYPE_FLOAT
+	  DUCKDB_TYPE_DOUBLE
+	  DUCKDB_TYPE_TIMESTAMP
+	  DUCKDB_TYPE_DATE
+	  DUCKDB_TYPE_TIME
+	  DUCKDB_TYPE_INTERVAL
+	  DUCKDB_TYPE_HUGEINT
+	  DUCKDB_TYPE_UHUGEINT
+	  DUCKDB_TYPE_VARCHAR
+	  DUCKDB_TYPE_BLOB
+	  DUCKDB_TYPE_DECIMAL
+	  DUCKDB_TYPE_TIMESTAMP_S
+	  DUCKDB_TYPE_TIMESTAMP_MS
+	  DUCKDB_TYPE_TIMESTAMP_NS
+	  DUCKDB_TYPE_ENUM
+	  DUCKDB_TYPE_LIST
+	  DUCKDB_TYPE_STRUCT
+	  DUCKDB_TYPE_MAP
+	  DUCKDB_TYPE_UUID
+	  DUCKDB_TYPE_UNION
+	  DUCKDB_TYPE_BIT
+	  DUCKDB_TYPE_TIME_TZ
+	  DUCKDB_TYPE_TIMESTAMP_TZ]
+        (reduce (fn [[stmts offset typemap] entry]
+                  (let [offset (if (vector? entry)
+                                 (second entry)
+                                 (inc offset))
+                        sym (if (vector? entry)
+                              (first entry)
+                              entry)]
+                    [(conj stmts `(def ~(with-meta sym {:tag 'long}) ~offset)) offset
+                     (assoc typemap offset (keyword (name sym)))]))
+                ;;enums start at 0 and increment
+                [[] -1 {}]))] 
+    `(do
+       ~@stmts
+       (def duckdb-type-map ~typemap))))
 
-(def ^{:tag 'long} DUCKDB_TYPE_INVALID 0)
-(def ^{:tag 'long} DUCKDB_TYPE_BOOLEAN 1)
-(def ^{:tag 'long} DUCKDB_TYPE_TINYINT 2)
-(def ^{:tag 'long} DUCKDB_TYPE_SMALLINT 3)
-(def ^{:tag 'long} DUCKDB_TYPE_INTEGER 4)
-(def ^{:tag 'long} DUCKDB_TYPE_BIGINT 5)
-(def ^{:tag 'long} DUCKDB_TYPE_UTINYINT 6)
-(def ^{:tag 'long} DUCKDB_TYPE_USMALLINT 7)
-(def ^{:tag 'long} DUCKDB_TYPE_UINTEGER 8)
-(def ^{:tag 'long} DUCKDB_TYPE_UBIGINT 9)
-(def ^{:tag 'long} DUCKDB_TYPE_FLOAT 10)
-(def ^{:tag 'long} DUCKDB_TYPE_DOUBLE 11)
-(def ^{:tag 'long} DUCKDB_TYPE_TIMESTAMP 12)
-(def ^{:tag 'long} DUCKDB_TYPE_DATE 13)
-(def ^{:tag 'long} DUCKDB_TYPE_TIME 14)
-(def ^{:tag 'long} DUCKDB_TYPE_INTERVAL 15)
-(def ^{:tag 'long} DUCKDB_TYPE_HUGEINT 16)
-(def ^{:tag 'long} DUCKDB_TYPE_VARCHAR 17)
-(def ^{:tag 'long} DUCKDB_TYPE_BLOB 18)
-;; decimal
-(def ^{:tag 'long} DUCKDB_TYPE_DECIMAL 19)
-;; duckdb_timestamp, in seconds
-(def ^{:tag 'long} DUCKDB_TYPE_TIMESTAMP_S 20)
-;; duckdb_timestamp, in milliseconds
-(def ^{:tag 'long} DUCKDB_TYPE_TIMESTAMP_MS 21)
-;; duckdb_timestamp, in nanoseconds
-(def ^{:tag 'long} DUCKDB_TYPE_TIMESTAMP_NS 22)
- ;; enum type, only useful as logical type
-(def ^{:tag 'long} DUCKDB_TYPE_ENUM 23)
-;; list type, only useful as logical type
-(def ^{:tag 'long} DUCKDB_TYPE_LIST 24)
-;; struct type, only useful as logical type
-(def ^{:tag 'long} DUCKDB_TYPE_STRUCT 25)
-;; map type, only useful as logical type
-(def ^{:tag 'long} DUCKDB_TYPE_MAP 26)
-;; duckdb_hugeint
-(def ^{:tag 'long} DUCKDB_TYPE_UUID 27)
-;; union type, only useful as logical type
-(def ^{:tag 'long} DUCKDB_TYPE_UNION 28)
-;; duckdb_bit
-(def ^{:tag 'long} DUCKDB_TYPE_BIT 29)
+(define-long-enums)
 
-
-(def duckdb-type-map
-  {DUCKDB_TYPE_INVALID :DUCKDB_TYPE_INVALID
-   DUCKDB_TYPE_BOOLEAN :DUCKDB_TYPE_BOOLEAN
-   DUCKDB_TYPE_TINYINT :DUCKDB_TYPE_TINYINT
-   DUCKDB_TYPE_SMALLINT :DUCKDB_TYPE_SMALLINT
-   DUCKDB_TYPE_INTEGER :DUCKDB_TYPE_INTEGER
-   DUCKDB_TYPE_BIGINT :DUCKDB_TYPE_BIGINT
-   DUCKDB_TYPE_UTINYINT :DUCKDB_TYPE_UTINYINT
-   DUCKDB_TYPE_USMALLINT :DUCKDB_TYPE_USMALLINT
-   DUCKDB_TYPE_UINTEGER :DUCKDB_TYPE_UINTEGER
-   DUCKDB_TYPE_UBIGINT :DUCKDB_TYPE_UBIGINT
-   DUCKDB_TYPE_FLOAT :DUCKDB_TYPE_FLOAT
-   DUCKDB_TYPE_DOUBLE :DUCKDB_TYPE_DOUBLE
-   DUCKDB_TYPE_TIMESTAMP :DUCKDB_TYPE_TIMESTAMP
-   DUCKDB_TYPE_DATE :DUCKDB_TYPE_DATE
-   DUCKDB_TYPE_TIME :DUCKDB_TYPE_TIME
-   DUCKDB_TYPE_INTERVAL :DUCKDB_TYPE_INTERVAL
-   DUCKDB_TYPE_HUGEINT :DUCKDB_TYPE_HUGEINT
-   DUCKDB_TYPE_VARCHAR :DUCKDB_TYPE_VARCHAR
-   DUCKDB_TYPE_BLOB :DUCKDB_TYPE_BLOB
-   DUCKDB_TYPE_DECIMAL :DUCKDB_TYPE_DECIMAL
-   DUCKDB_TYPE_TIMESTAMP_S :DUCKDB_TYPE_TIMESTAMP_S
-   DUCKDB_TYPE_TIMESTAMP_MS :DUCKDB_TYPE_TIMESTAMP_MS
-   DUCKDB_TYPE_TIMESTAMP_NS :DUCKDB_TYPE_TIMESTAMP_NS
-   DUCKDB_TYPE_ENUM :DUCKDB_TYPE_ENUM
-   DUCKDB_TYPE_LIST :DUCKDB_TYPE_LIST
-   DUCKDB_TYPE_STRUCT :DUCKDB_TYPE_STRUCT
-   DUCKDB_TYPE_MAP :DUCKDB_TYPE_MAP
-   DUCKDB_TYPE_UUID :DUCKDB_TYPE_UUID
-   DUCKDB_TYPE_UNION :DUCKDB_TYPE_UNION
-   DUCKDB_TYPE_BIT :DUCKDB_TYPE_BIT }
-  )
 
 (def ^{:tag 'long} DuckDBSuccess 0)
 (def ^{:tag 'long} DuckDBError 1)
@@ -112,7 +90,7 @@ If no path is given a new in-memory database is created instead.
 * returns: `DuckDBSuccess` on success or `DuckDBError` on failure."}
     :duckdb_open_ext {:rettype :int32
                       :argtypes [[path :string]
-                                 [out_datatypes :pointer]
+                                 [out_database :pointer]
                                  [config :pointer?]
                                  [out_error :pointer]]}
     :duckdb_close {:rettype :void

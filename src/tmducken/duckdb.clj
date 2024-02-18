@@ -318,7 +318,7 @@ tmducken.duckdb> (get-config-options)
           check-error (fn [status]
                         (when-not (= status duckdb-ffi/DuckDBSuccess)
                           (let [err (duckdb-ffi/duckdb_appender_error appender)]
-                            (throw (Exception. (str err))))))
+                            (throw (Exception. (dt-ffi/c->string err))))))
           _ (check-error app-status)
           n-rows (ds/row-count dataset)
           n-cols (ds/column-count dataset)
