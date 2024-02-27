@@ -115,6 +115,7 @@ associated with the connection.
                         :doc "Closes the specified connection and de-allocates all memory allocated for that connection.
 
 * connection: The connection to close."}
+    :duckdb_library_version {:rettype :pointer}
     :duckdb_config_count {:rettype :size-t
                           :doc "This returns the total amount of configuration options available for usage with `duckdb_get_config_flag`.
 

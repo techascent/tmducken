@@ -4,6 +4,7 @@
             [tmducken.duckdb.ffi :as duckdb-ffi]
             [tech.v3.dataset :as ds]
             [tech.v3.datatype.functional :as dfn]
+            [tech.v3.datatype :as dt]
             [tech.v3.datatype.datetime :as dtype-dt]
             [tech.v3.resource :as resource])
   (:import [java.util UUID]
@@ -92,6 +93,33 @@
       (try
         (duckdb/drop-table! @conn* "stocks")
         (catch Throwable e nil)))))
+
+
+(deftest filter-stonks-test
+  (let [stonks (-> @stocks-src*
+                   (ds/row-map (fn [m]
+                                 (cond
+                                     (< (:price m) 37.) (update m :price (constantly nil))
+                                     :else m)))
+                   (vary-meta assoc :name :stonks))]
+    (try
+      (do (duckdb/create-table! @conn* stonks)
+          (duckdb/insert-dataset! @conn* stonks))
+      (let [sql-stocks (duckdb/sql->dataset @conn* "select * from stonks")]
+        (is (= (ds/row-count stonks)
+               (ds/row-count sql-stocks)))
+        (is (= (vec (stonks :symbol))
+               (vec (sql-stocks "symbol"))))
+        (is (= (vec (stonks :date))
+               (vec (sql-stocks "date"))))
+        (is (== (dt/ecount (ds/missing stonks))
+                (dt/ecount (ds/missing sql-stocks))))
+        (is (dfn/equals (stonks :price)
+                        (sql-stocks "price"))))
+      (finally
+        (try
+          (duckdb/drop-table! @conn* stonks)
+          (catch Throwable e nil))))))
 
 
 (deftest prepared-statements-test

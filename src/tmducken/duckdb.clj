@@ -89,6 +89,22 @@ _unnamed [5 3]:
   @initialize*)
 
 
+(defn duckdb-library-version
+  ^String []
+  (dt-ffi/c->string (duckdb-ffi/duckdb_library_version)))
+
+
+(defn- check-lib-version!
+  []
+  (let [lib-version (duckdb-library-version)
+        parts (.split lib-version "\\.")
+        mid-part (Integer/parseInt (aget parts 1))]
+    (when-not (or (not= "v0" (aget parts 0))
+                  (>= mid-part 10))
+      (throw (RuntimeException. (str "Invalid version: " lib-version " - " "this version of tmducken is meant for duckdb version 0.10.0 and up"))))
+    :ok))
+
+
 (defn initialize!
   "Initialize the duckdb ffi system.  This must be called first should be called only once.
   It is safe, however, to call this multiple times.
@@ -119,6 +135,7 @@ _unnamed [5 3]:
                     (log/info "Attempting to load in-process duckdb"))
                   (duckdb-ffi/define-datatypes!)
                   (dt-ffi/library-singleton-set! duckdb-ffi/lib libpath))))
+            (check-lib-version!)
             true)))
   ([] (initialize! nil)))
 
