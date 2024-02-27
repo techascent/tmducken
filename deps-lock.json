@@ -2824,14 +2824,14 @@
       "hash": "sha256-CHMbn4/tne9CG+jF35DfJ5zew7tKb9+Pda31kSf69zA="
     },
     {
-      "mvn-path": "techascent/tech.ml.dataset/7.025/tech.ml.dataset-7.025.jar",
+      "mvn-path": "techascent/tech.ml.dataset/7.026/tech.ml.dataset-7.026.jar",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-EI+HerPGiiSOzfzjocKyks47pBgpXIHCd2SrB3iugAo="
+      "hash": "sha256-rgKFUtraxOw8vjEO3UhRruKbHjUpMj70U+sOk5a3LPQ="
     },
     {
-      "mvn-path": "techascent/tech.ml.dataset/7.025/tech.ml.dataset-7.025.pom",
+      "mvn-path": "techascent/tech.ml.dataset/7.026/tech.ml.dataset-7.026.pom",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-M7YD/3bmVt5tncVMup7Jh9gdiw9BmiMOX/vZ4nVFl/w="
+      "hash": "sha256-hCy4WF+nFiV2ZKOQEjzXacAJnbFnl6RxJaJ7+GengC8="
     },
     {
       "mvn-path": "techascent/tech.resource/5.08/tech.resource-5.08.jar",
