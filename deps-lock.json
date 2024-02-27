@@ -109,14 +109,14 @@
       "hash": "sha256-/KBe9MK3zGkWLPVQRzH3ysNTXEnDXSU1xHY6UFYDQbo="
     },
     {
-      "mvn-path": "cnuernber/dtype-next/10.011/dtype-next-10.011.jar",
+      "mvn-path": "cnuernber/dtype-next/10.110/dtype-next-10.110.jar",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-6jaTjw8MVHCof5K3v4t3hloEFhfHYV777g9wF8rPmPM="
+      "hash": "sha256-Jw+yabVvSKx7B7j1ckQuVLnXv8aiAJUgW4rbQdpPL44="
     },
     {
-      "mvn-path": "cnuernber/dtype-next/10.011/dtype-next-10.011.pom",
+      "mvn-path": "cnuernber/dtype-next/10.110/dtype-next-10.110.pom",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-otWL/X0KrMSI7nCMlpeT7theek2J1sJj5A9QxHyNY3U="
+      "hash": "sha256-0KqL24X7vp5gxLvqMw6RmLcJfUAtnyo2x2fRFPdjMDI="
     },
     {
       "mvn-path": "codox-theme-rdash/codox-theme-rdash/0.1.2/codox-theme-rdash-0.1.2.jar",
@@ -189,14 +189,14 @@
       "hash": "sha256-+sn8LSlL5LQvRlmwC4VHfNxGr8dye82QeKw8tZbQcco="
     },
     {
-      "mvn-path": "com/cnuernber/charred/1.032/charred-1.032.jar",
+      "mvn-path": "com/cnuernber/charred/1.033/charred-1.033.jar",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-+XtD1W2J4PEGFmBEowmVK/JbuDwR7QqAfocfDV9Wc2s="
+      "hash": "sha256-jcL/2DBmsLVgTVMkeWrbMZi+8HchRGXFAHcrdyaI8TI="
     },
     {
-      "mvn-path": "com/cnuernber/charred/1.032/charred-1.032.pom",
+      "mvn-path": "com/cnuernber/charred/1.033/charred-1.033.pom",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-II+0S5/FBCSSvbp+qRQLae9CW0OBiRx2LL+Utb9S6Ts="
+      "hash": "sha256-JezUR9O5Us4k7nibKus//lM8cgozPhk19OdqjmDgTHM="
     },
     {
       "mvn-path": "com/cnuernber/codox/1.001/codox-1.001.jar",
@@ -209,14 +209,14 @@
       "hash": "sha256-2IMwJRCM0r/gLZ8EOFhPB5aK9crAzGUBwaJGC3aJ7Hs="
     },
     {
-      "mvn-path": "com/cnuernber/ham-fisted/1.004/ham-fisted-1.004.jar",
+      "mvn-path": "com/cnuernber/ham-fisted/2.017/ham-fisted-2.017.jar",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-ZZjtfethmDuiGBnbA7T6ouhxVVJT1rsxKx2b4iy+6Yk="
+      "hash": "sha256-Agcmc8vnIjg5FMQBS8lm5FFtBtYumSxpkaCjfw2FRbQ="
     },
     {
-      "mvn-path": "com/cnuernber/ham-fisted/1.004/ham-fisted-1.004.pom",
+      "mvn-path": "com/cnuernber/ham-fisted/2.017/ham-fisted-2.017.pom",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-1CoNrprRpuleYata7WPr/9v/nFqMls7MBUgIfp+kVl0="
+      "hash": "sha256-xfXyfLY2pEo/T6EVCWnxIpWBeeaG+c6d+QKbuYWbI1k="
     },
     {
       "mvn-path": "com/cognitect/aws/api/0.8.612/api-0.8.612.jar",
@@ -1244,6 +1244,11 @@
       "hash": "sha256-dluccYMtL6rZYRhpwfByY+Pf0ADr79zUNNHxTLK+PqE="
     },
     {
+      "mvn-path": "org/apache/apache/29/apache-29.pom",
+      "mvn-repo": "https://repo.maven.apache.org/maven2/",
+      "hash": "sha256-PkkDcXSCC70N9jQgqXclWIY5iVTCoGKR+mH3J6w1s3c="
+    },
+    {
       "mvn-path": "org/apache/commons/commons-lang3/3.12.0/commons-lang3-3.12.0.jar",
       "mvn-repo": "https://repo.maven.apache.org/maven2/",
       "hash": "sha256-2RnZBEhsA3+NGTQS2gyS4iqfokIwudZ6V4VcXDHH6U4="
@@ -1309,24 +1314,24 @@
       "hash": "sha256-ddvo806Y5MP/QtquSi+etMvNO18QR9VEYKzpBtu0UC4="
     },
     {
-      "mvn-path": "org/apache/datasketches/datasketches-java/3.3.0/datasketches-java-3.3.0.jar",
+      "mvn-path": "org/apache/datasketches/datasketches-java/4.2.0/datasketches-java-4.2.0.jar",
       "mvn-repo": "https://repo.maven.apache.org/maven2/",
-      "hash": "sha256-0b97TtFAWPJE/nqF965p9C3kUrfnwMwmtzW+QHcOWQE="
+      "hash": "sha256-BYNPPeMClyiL0zfIUQRbLCyrwzVJP6B51anl3EiCxvQ="
     },
     {
-      "mvn-path": "org/apache/datasketches/datasketches-java/3.3.0/datasketches-java-3.3.0.pom",
+      "mvn-path": "org/apache/datasketches/datasketches-java/4.2.0/datasketches-java-4.2.0.pom",
       "mvn-repo": "https://repo.maven.apache.org/maven2/",
-      "hash": "sha256-KllnrY77068jGWYxnr7xrhUr6bnY0x7X3SGitawYJuM="
+      "hash": "sha256-fd1y1K+CnTyi86OA6VYGxYFxjoHNQS1iHe/Rhd4k8kA="
     },
     {
-      "mvn-path": "org/apache/datasketches/datasketches-memory/2.1.0/datasketches-memory-2.1.0.jar",
+      "mvn-path": "org/apache/datasketches/datasketches-memory/2.2.0/datasketches-memory-2.2.0.jar",
       "mvn-repo": "https://repo.maven.apache.org/maven2/",
-      "hash": "sha256-nWzF4GRJxr1hu6XrfbMLuTWDWRMAMyoJzmFRmL+G+yM="
+      "hash": "sha256-CTVGFyb5coZvnfaNxzRNr/VY50XZ2yIHo6+JcVwnlh0="
     },
     {
-      "mvn-path": "org/apache/datasketches/datasketches-memory/2.1.0/datasketches-memory-2.1.0.pom",
+      "mvn-path": "org/apache/datasketches/datasketches-memory/2.2.0/datasketches-memory-2.2.0.pom",
       "mvn-repo": "https://repo.maven.apache.org/maven2/",
-      "hash": "sha256-jIxkrZvKXBUO039oQRN+t/Hx3UeCQXwl35uZM+YiIYI="
+      "hash": "sha256-LFhbVUMsCpCpwCR6HvBjDFJKZAt/udu4L5c/E/NPo+U="
     },
     {
       "mvn-path": "org/apache/httpcomponents/httpclient/4.5.13/httpclient-4.5.13.jar",
@@ -2799,14 +2804,14 @@
       "hash": "sha256-LOE3TmT+tjzt+LsQHw0/Jhdp/FF5xdUVfH94Z9CklEc="
     },
     {
-      "mvn-path": "techascent/tech.io/4.30/tech.io-4.30.jar",
+      "mvn-path": "techascent/tech.io/4.31/tech.io-4.31.jar",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-0Ynu92Lktk9B61FoAWIw8AJVb5Y12/uuiJWIB1pFNAA="
+      "hash": "sha256-m2vL/p7Cos8JQst7HIRA+YLFQwmNWN5pOUSCpC8EfP0="
     },
     {
-      "mvn-path": "techascent/tech.io/4.30/tech.io-4.30.pom",
+      "mvn-path": "techascent/tech.io/4.31/tech.io-4.31.pom",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-rePWgfezT0lTkGStEZS7hWfSgPH2lRk98jhvudfOO2M="
+      "hash": "sha256-HJPcUd5G8OfHcNtuZNkBh47yPflfOqEM4rNeiL283oU="
     },
     {
       "mvn-path": "techascent/tech.ml.dataset.sql/7.000-beta-52/tech.ml.dataset.sql-7.000-beta-52.jar",
@@ -2819,14 +2824,14 @@
       "hash": "sha256-CHMbn4/tne9CG+jF35DfJ5zew7tKb9+Pda31kSf69zA="
     },
     {
-      "mvn-path": "techascent/tech.ml.dataset/7.006/tech.ml.dataset-7.006.jar",
+      "mvn-path": "techascent/tech.ml.dataset/7.025/tech.ml.dataset-7.025.jar",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-HlBRAMMpEX+NfLHVylXvAf63U8GEhO6bzka5DaHYpLQ="
+      "hash": "sha256-EI+HerPGiiSOzfzjocKyks47pBgpXIHCd2SrB3iugAo="
     },
     {
-      "mvn-path": "techascent/tech.ml.dataset/7.006/tech.ml.dataset-7.006.pom",
+      "mvn-path": "techascent/tech.ml.dataset/7.025/tech.ml.dataset-7.025.pom",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-/qhHLPXpjkCNBeUbKsz1RdC51e9khz0dOErcGewUGX4="
+      "hash": "sha256-M7YD/3bmVt5tncVMup7Jh9gdiw9BmiMOX/vZ4nVFl/w="
     },
     {
       "mvn-path": "techascent/tech.resource/5.08/tech.resource-5.08.jar",
