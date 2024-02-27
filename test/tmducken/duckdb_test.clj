@@ -6,6 +6,7 @@
             [tech.v3.datatype.functional :as dfn]
             [tech.v3.datatype :as dt]
             [tech.v3.datatype.datetime :as dtype-dt]
+            [tech.v3.datatype.bitmap :as bitmap]
             [tech.v3.resource :as resource])
   (:import [java.util UUID]
            [java.time LocalTime]
@@ -96,11 +97,11 @@
 
 
 (deftest filter-stonks-test
-  (let [stonks (-> @stocks-src*
+  (let [stonks (-> (apply ds/concat (repeat 10 @stocks-src*))
                    (ds/row-map (fn [m]
                                  (cond
-                                     (< (:price m) 37.) (update m :price (constantly nil))
-                                     :else m)))
+                                   (< (:price m) 37.) (update m :price (constantly nil))
+                                   :else m)))
                    (vary-meta assoc :name :stonks))]
     (try
       (do (duckdb/create-table! @conn* stonks)
@@ -112,8 +113,8 @@
                (vec (sql-stocks "symbol"))))
         (is (= (vec (stonks :date))
                (vec (sql-stocks "date"))))
-        (is (== (dt/ecount (ds/missing stonks))
-                (dt/ecount (ds/missing sql-stocks))))
+        (is (= (vec (bitmap/->random-access (ds/missing stonks)))
+               (vec (bitmap/->random-access (ds/missing sql-stocks)))))
         (is (dfn/equals (stonks :price)
                         (sql-stocks "price"))))
       (finally
