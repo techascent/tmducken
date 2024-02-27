@@ -99,22 +99,26 @@ _unnamed [5 3]:
   this in.  If not passed in, then the environment variable `DUCKDB_HOME` is checked.  If
   neither is passed in then the library will be searched in the normal system library
   paths."
-  ([{:keys [duckdb-home]}]
+  ([{:keys [duckdb-home
+            lib-instance]}]
    (swap! initialize*
           (fn [is-init?]
             (when-not is-init?
-              (let [duckdb-home (or duckdb-home
-                                    (System/getenv "DUCKDB_HOME")
-                                    (str "/" com.sun.jna.Platform/RESOURCE_PREFIX))
-                    libpath (if-not (empty? duckdb-home)
-                              (str (Paths/get duckdb-home
-                                              (into-array String [(System/mapLibraryName "duckdb")])))
-                              "duckdb")]
-                (if libpath
-                  (log/infof "Attempting to load duckdb from \"%s\"" libpath)
-                  (log/info "Attempting to load in-process duckdb"))
-                (duckdb-ffi/define-datatypes!)
-                (dt-ffi/library-singleton-set! duckdb-ffi/lib libpath)))
+              ;;Precompiled pathways will pass in the instance.
+              (if lib-instance
+                (dt-ffi/library-singleton-set-instance! duckdb-ffi/lib lib-instance)
+                (let [duckdb-home (or duckdb-home
+                                      (System/getenv "DUCKDB_HOME")
+                                      (str "/" com.sun.jna.Platform/RESOURCE_PREFIX))
+                      libpath (if-not (empty? duckdb-home)
+                                (str (Paths/get duckdb-home
+                                                (into-array String [(System/mapLibraryName "duckdb")])))
+                                "duckdb")]
+                  (if libpath
+                    (log/infof "Attempting to load duckdb from \"%s\"" libpath)
+                    (log/info "Attempting to load in-process duckdb"))
+                  (duckdb-ffi/define-datatypes!)
+                  (dt-ffi/library-singleton-set! duckdb-ffi/lib libpath))))
             true)))
   ([] (initialize! nil)))
 
