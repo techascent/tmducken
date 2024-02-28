@@ -480,23 +480,23 @@ all memory associated with the appender.
 
 (defonce blob-def* (delay (dt-struct/define-datatype! :duckdb-blob
                             [{:name :data
-                              :datatype @ptr-dtype*}
+                              :datatype :pointer}
                              {:name :size
                               :datatype :uint64}])))
 
 
 (defonce column-def* (delay (dt-struct/define-datatype! :duckdb-column
                               [{:name :data
-                                :datatype @ptr-dtype*}
+                                :datatype :pointer}
                                {:name :nullmask
-                                :datatype @ptr-dtype*}
+                                :datatype :pointer}
                                ;;duckdb-type
                                {:name :type
                                 :datatype :int32}
                                {:name :name
-                                :datatype @ptr-dtype*}
+                                :datatype :pointer}
                                {:name :internal_data
-                                :datatype @ptr-dtype*}])))
+                                :datatype :pointer}])))
 
 
 (defonce result-def* (delay
@@ -508,11 +508,11 @@ all memory associated with the appender.
                           {:name :rows-changed
                            :datatype :uint64}
                           {:name :columns
-                           :datatype @ptr-dtype*}
+                           :datatype :pointer}
                           {:name :error-message
-                           :datatype @ptr-dtype*}
+                           :datatype :pointer}
                           {:name :internal-data
-                           :datatype @ptr-dtype*}])))
+                           :datatype :pointer}])))
 
 
 
@@ -520,40 +520,40 @@ all memory associated with the appender.
   (delay
     (dt-struct/define-datatype! :duckdb-logical-type
       [{:name :__lglt
-        :datatype @ptr-dtype*}])))
+        :datatype :pointer}])))
 
 
 (defonce data-chunk-def*
   (delay
     (dt-struct/define-datatype! :duckdb-data-chunk
       [{:name :__dtck
-        :datatype @ptr-dtype*}])))
+        :datatype :pointer}])))
 
 
 (defonce vector-def*
   (delay
     (dt-struct/define-datatype! :duckdb-vector
       [{:name :__vec
-        :datatype @ptr-dtype*}])))
+        :datatype :pointer}])))
 
 
 (defonce appender-def*
   (delay
     (dt-struct/define-datatype! :duckdb-appender
       [{:name :__appn
-        :datatype @ptr-dtype*}])))
+        :datatype :pointer}])))
 
 (defonce prepared-statement-def*
   (delay
     (dt-struct/define-datatype! :duckdb-prepared-statement
       [{:name :__prep
-        :datatype @ptr-dtype*}])
+        :datatype :pointer}])
     (dt-struct/define-datatype! :duckdb-extracted-statements
       [{:name :__extrac
-        :datatype @ptr-dtype*}])
+        :datatype :pointer}])
     (dt-struct/define-datatype! :duckdb-pending-result
       [{:name :__pend
-        :datatype @ptr-dtype*}])
+        :datatype :pointer}])
     ))
 
 

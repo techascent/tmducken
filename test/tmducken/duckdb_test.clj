@@ -15,6 +15,17 @@
 
 (duckdb/initialize!)
 
+(comment
+  (require '[tech.v3.datatype.ffi.mmodel-jdk21 :as mm])
+  (def cls-def (mm/define-library duckdb-ffi/lib-fns nil nil))
+  (def lib-path (str (java.nio.file.Paths/get (System/getenv "DUCKDB_HOME")
+                                              (into-array String [(System/mapLibraryName "duckdb")]))))
+  (def sym (mm/load-library lib-path))
+  (def inst (tech.v3.datatype.ffi/instantiate-library cls-def sym))
+  (tech.v3.datatype.ffi/library-singleton-set-instance! duckdb-ffi/lib inst)
+  )
+
+
 (def db* (delay (duckdb/initialize!)
                 (duckdb/open-db)))
 
