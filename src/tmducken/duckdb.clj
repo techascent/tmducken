@@ -96,12 +96,9 @@ _unnamed [5 3]:
 
 (defn- check-lib-version!
   []
-  (let [lib-version (duckdb-library-version)
-        parts (.split lib-version "\\.")
-        mid-part (Integer/parseInt (aget parts 1))]
-    (when-not (or (not= "v0" (aget parts 0))
-                  (>= mid-part 10))
-      (throw (RuntimeException. (str "Invalid version: " lib-version " - " "this version of tmducken is meant for duckdb version 0.10.0 and up"))))
+  (let [lib-version (duckdb-library-version)]
+    (when (= lib-version "v0.10.0")
+      (throw (RuntimeException. (str "Invalid version: " lib-version " - " "this version of tmducken is meant for duckdb version 0.10.1 and up but should also work with 0.9.2"))))
     :ok))
 
 
