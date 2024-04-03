@@ -45,6 +45,7 @@
             # provides deps-lock library for updating deps-lock.json from deps.edn
             clj-nix.packages.${system}.deps-lock
             pkgs.clojure
+            pkgs.duckdb
           ];
           shellHook = postPatch;
         };
