@@ -8,57 +8,52 @@
            [tech.v3.datatype.ffi Pointer]))
 
 
+(def ^:private -DUCKDB-TYPES
+  '{DUCKDB_TYPE_INVALID      0
+    DUCKDB_TYPE_BOOLEAN      1
+    DUCKDB_TYPE_TINYINT      2
+    DUCKDB_TYPE_SMALLINT     3
+    DUCKDB_TYPE_INTEGER      4
+    DUCKDB_TYPE_BIGINT       5
+    DUCKDB_TYPE_UTINYINT     6
+    DUCKDB_TYPE_USMALLINT    7
+    DUCKDB_TYPE_UINTEGER     8
+    DUCKDB_TYPE_UBIGINT      9
+    DUCKDB_TYPE_FLOAT        10
+    DUCKDB_TYPE_DOUBLE       11
+    DUCKDB_TYPE_TIMESTAMP    12
+    DUCKDB_TYPE_DATE         13
+    DUCKDB_TYPE_TIME         14
+    DUCKDB_TYPE_INTERVAL     15
+    DUCKDB_TYPE_HUGEINT      16
+    DUCKDB_TYPE_UHUGEINT     32
+    DUCKDB_TYPE_VARCHAR      17
+    DUCKDB_TYPE_BLOB         18
+    DUCKDB_TYPE_DECIMAL      19
+    DUCKDB_TYPE_TIMESTAMP_S  20
+    DUCKDB_TYPE_TIMESTAMP_MS 21
+    DUCKDB_TYPE_TIMESTAMP_NS 22
+    DUCKDB_TYPE_ENUM         23
+    DUCKDB_TYPE_LIST         24
+    DUCKDB_TYPE_STRUCT       25
+    DUCKDB_TYPE_MAP          26
+    DUCKDB_TYPE_UUID         27
+    DUCKDB_TYPE_UNION        28
+    DUCKDB_TYPE_BIT          29
+    DUCKDB_TYPE_TIME_TZ      30
+    DUCKDB_TYPE_TIMESTAMP_TZ 31})
+
 (defmacro define-long-enums
   []
-  (let [[stmts offset typemap]
-        (->>
-        '[[DUCKDB_TYPE_INVALID 0] ;;starts at zero
-	  DUCKDB_TYPE_BOOLEAN
-	  DUCKDB_TYPE_TINYINT
-	  DUCKDB_TYPE_SMALLINT
-	  DUCKDB_TYPE_INTEGER
-	  DUCKDB_TYPE_BIGINT
-	  DUCKDB_TYPE_UTINYINT
-	  DUCKDB_TYPE_USMALLINT
-	  DUCKDB_TYPE_UINTEGER
-	  DUCKDB_TYPE_UBIGINT
-	  DUCKDB_TYPE_FLOAT
-	  DUCKDB_TYPE_DOUBLE
-	  DUCKDB_TYPE_TIMESTAMP
-	  DUCKDB_TYPE_DATE
-	  DUCKDB_TYPE_TIME
-	  DUCKDB_TYPE_INTERVAL
-	  DUCKDB_TYPE_HUGEINT
-	  DUCKDB_TYPE_UHUGEINT
-	  DUCKDB_TYPE_VARCHAR
-	  DUCKDB_TYPE_BLOB
-	  DUCKDB_TYPE_DECIMAL
-	  DUCKDB_TYPE_TIMESTAMP_S
-	  DUCKDB_TYPE_TIMESTAMP_MS
-	  DUCKDB_TYPE_TIMESTAMP_NS
-	  DUCKDB_TYPE_ENUM
-	  DUCKDB_TYPE_LIST
-	  DUCKDB_TYPE_STRUCT
-	  DUCKDB_TYPE_MAP
-	  DUCKDB_TYPE_UUID
-	  DUCKDB_TYPE_UNION
-	  DUCKDB_TYPE_BIT
-	  DUCKDB_TYPE_TIME_TZ
-	  DUCKDB_TYPE_TIMESTAMP_TZ]
-        (reduce (fn [[stmts offset typemap] entry]
-                  (let [offset (if (vector? entry)
-                                 (second entry)
-                                 (inc offset))
-                        sym (if (vector? entry)
-                              (first entry)
-                              entry)]
-                    [(conj stmts `(def ~(with-meta sym {:tag 'long}) ~offset)) offset
-                     (assoc typemap offset (keyword (name sym)))]))
-                ;;enums start at 0 and increment
-                [[] -1 {}]))] 
-    `(do
-       ~@stmts
-       (def duckdb-type-map ~typemap))))
+  (let [sym-defs     (for [[sym-name val] -DUCKDB-TYPES]
+                       `(def ~(with-meta sym-name {:tag 'long}) ~val))
+        type-map-def (reduce
+                       (fn [type-map-def [sym-name val]]
+                         (assoc type-map-def val (keyword sym-name)))
+                       {}
+                       -DUCKDB-TYPES)]
+    `(do ~@sym-defs
+         (def duckdb-type-map ~type-map-def))))
 
 (define-long-enums)
 
