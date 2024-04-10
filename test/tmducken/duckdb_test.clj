@@ -196,3 +196,30 @@
     (duckdb/insert-dataset! @conn* (ds-fn))
     (is (= (* 2 rn) (-> (duckdb/sql->dataset @conn* "from t")
                         (ds/row-count))))))
+
+
+(deftest pivot-test
+  (let [cities
+        [{:country "NL" :name "Amsterdam" :year 2000 :population 1005}
+         {:country "NL" :name "Amsterdam" :year 2010 :population 1065}
+         {:country "NL" :name "Amsterdam" :year 2020 :population 1158}
+         {:country "US" :name "Seattle" :year 2000 :population 564}
+         {:country "US" :name "Seattle" :year 2010 :population 608}
+         {:country "US" :name "Seattle" :year 2020 :population 738}
+         {:country "US" :name "New York" :year 2000 :population 8015}
+         {:country "US" :name "New York" :year 2010 :population 8175}
+         {:country "US" :name "New York" :year 2020 :population 8772}]
+        cities-ds (ds/->dataset cities {:dataset-name "cities"})]
+    (try
+      (duckdb/drop-table! @conn* "cities")
+      (catch Throwable _ nil))
+    (duckdb/create-table! @conn* cities-ds)
+    (duckdb/insert-dataset! @conn* cities-ds)
+    (let [result-ds (duckdb/sql->dataset
+                      @conn*
+                      "SELECT country, name, \"2010\"::Integer as '2010' FROM (PIVOT cities ON year USING sum(population::SmallInt) order by country, name);")]
+      (is (= [{"country" "NL", "name" "Amsterdam", "2010" 1065}
+              {"country" "US", "name" "New York", "2010" 8175}
+              {"country" "US", "name" "Seattle", "2010" 608}]
+             (ds/rows result-ds))))))
+

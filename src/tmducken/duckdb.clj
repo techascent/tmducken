@@ -63,7 +63,8 @@ _unnamed [5 3]:
             [ham-fisted.api :as hamf]
             [ham-fisted.lazy-noncaching :as lznc]
             [ham-fisted.reduce :as hamf-rf]
-            [clojure.tools.logging :as log])
+            [clojure.tools.logging :as log]
+            [clojure.string :as str])
   (:import [java.nio.file Paths]
            [java.util Map Iterator ArrayList UUID]
            [java.util.function Supplier]
@@ -787,7 +788,7 @@ tmducken.duckdb> (get-config-options)
 
 
 (defn- results->datasets
-  ^AutoCloseable [sql duckdb-result destroy-result* options]
+  ^AutoCloseable [sql duckdb-result options]
   (let [metadata {:duckdb-result duckdb-result}
         n-cols (long (duckdb-ffi/duckdb_column_count duckdb-result))
         names (hamf/mapv #(dt-ffi/c->string (duckdb-ffi/duckdb_column_name duckdb-result %)) (hamf/range n-cols))
@@ -845,12 +846,12 @@ tmducken.duckdb> (get-config-options)
                              (duckdb-ffi/duckdb_result_chunk_count duckdb-result)
                              0
                              duckdb-result
-                             destroy-result*
+                             (delay nil)
                              realize-chunk
                              reduce-type)
       (StreamingResultChunks. sql
                               duckdb-result
-                              destroy-result*
+                              (delay nil)
                               realize-chunk
                               reduce-type))))
 
@@ -908,7 +909,7 @@ _unnamed [5 3]:
 
 
 (defn- bind-prepare-param
-  [stmt idx type-id v]
+  [stmt idx v]
   ;;type-id appears unreliable at this timee
   #_(let [errcode
         (if (nil? v)
@@ -970,88 +971,66 @@ _unnamed [5 3]:
     (throw (RuntimeException. (str "Unable to discern binding type for value: " v)))))
 
 
-(defn- statement->str
-  [n-args sql]
-  (str "#duckdb-prepared-statement-" n-args "[\"" sql "\"]"))
+(defn- -assert-n-args!
+  "Assert that the `actual-n-args` matches the `n-args-desired` or throw an error if it
+  does not."
+  [n-args-desired actual-n-args]
+  (when-not (= actual-n-args n-args-desired)
+    (throw (RuntimeException.
+             (format "Prepared statement defined for %d parameters -- %d given"
+                     n-args-desired actual-n-args)))))
 
 ;;Deftype so we can overload the tostring method
-(deftype ^:private PrepStatement0 [sql destroy-prep* finalize-stmt]
+(deftype ^:private PrepStatement [sql stmt n-params finalize-stmt]
   Object
-  (toString [this] (statement->str 0 sql))
+  (toString [this]
+    (str "#duckdb-prepared-statement-" n-params " [\"" sql "\"]"))
   IFnDef
-  (invoke [this] (finalize-stmt))
-  AutoCloseable
-  (close [this] @destroy-prep*))
-
-
-(dtype-pp/implement-tostring-print PrepStatement0)
-
-
-(deftype ^:private PrepStatement1 [sql stmt param-types destroy-prep* finalize-stmt]
-  Object
-  (toString [this] (statement->str 1 sql))
-  IFnDef
+  (invoke [this]
+    (-assert-n-args! n-params 0)
+    (finalize-stmt))
   (invoke [this v0]
-    (bind-prepare-param stmt 1 (nth param-types 0) v0)
+    (-assert-n-args! n-params 1)
+    (bind-prepare-param stmt 1 v0)
     (finalize-stmt))
-  AutoCloseable
-  (close [this] @destroy-prep*))
-
-(dtype-pp/implement-tostring-print PrepStatement1)
-
-
-(deftype ^:private PrepStatement2 [sql stmt param-types destroy-prep* finalize-stmt]
-  Object
-  (toString [this] (statement->str 2 sql))
-  IFnDef
   (invoke [this v0 v1]
-    (bind-prepare-param stmt 1 (nth param-types 0) v0)
-    (bind-prepare-param stmt 2 (nth param-types 1) v1)
+    (-assert-n-args! n-params 2)
+    (bind-prepare-param stmt 1 v0)
+    (bind-prepare-param stmt 2 v1)
     (finalize-stmt))
-  AutoCloseable
-  (close [this] @destroy-prep*))
-
-
-(dtype-pp/implement-tostring-print PrepStatement2)
-
-
-(deftype ^:private PrepStatement3 [sql stmt param-types destroy-prep* finalize-stmt]
-  Object
-  (toString [this] (statement->str 3 sql))
-  IFnDef
   (invoke [this v0 v1 v2]
-    (bind-prepare-param stmt 1 (nth param-types 0) v0)
-    (bind-prepare-param stmt 2 (nth param-types 1) v1)
-    (bind-prepare-param stmt 3 (nth param-types 2) v2)
+    (-assert-n-args! n-params 3)
+    (bind-prepare-param stmt 1 v0)
+    (bind-prepare-param stmt 2 v1)
+    (bind-prepare-param stmt 3 v2)
     (finalize-stmt))
-  AutoCloseable
-  (close [this] @destroy-prep*))
-
-
-(dtype-pp/implement-tostring-print PrepStatement3)
-
-
-(deftype ^:private PrepStatementN [sql stmt param-types destroy-prep* finalize-stmt]
-  Object
-  (toString [this] (statement->str (count param-types) sql))
-  IFnDef
+  (invoke [this v0 v1 v2 v3]
+    (-assert-n-args! n-params 4)
+    (bind-prepare-param stmt 1 v0)
+    (bind-prepare-param stmt 2 v1)
+    (bind-prepare-param stmt 3 v2)
+    (bind-prepare-param stmt 4 v3)
+    (finalize-stmt))
+  (invoke [this v0 v1 v2 v3 v4]
+    (-assert-n-args! n-params 5)
+    (bind-prepare-param stmt 1 v0)
+    (bind-prepare-param stmt 2 v1)
+    (bind-prepare-param stmt 3 v2)
+    (bind-prepare-param stmt 4 v3)
+    (finalize-stmt))
   (applyTo [this args]
-    (when-not (== (count param-types) (count args))
-      (throw (RuntimeException. (format "Prepared statement defined for %d parameters -- %d given"
-                                        (count param-types) (count args)))))
+    (-assert-n-args! n-params (count args))
     (reduce (hamf-rf/indexed-accum
-             acc idx v
-             (bind-prepare-param stmt (inc idx) (nth param-types idx) v))
+              acc idx v
+              (bind-prepare-param stmt (inc idx) v))
             nil
             args)
     (finalize-stmt))
   AutoCloseable
-  (close [this] @destroy-prep*))
+  (close [this] nil))
 
 
-(dtype-pp/implement-tostring-print PrepStatementN)
-
-
+(dtype-pp/implement-tostring-print PrepStatement)
 (defn- datasets->dataset
   "Given a sequence of results return a single dataset.  This pathway relies on reduce-type being anything
   other than `:zero-copy-imm`.  It is designed for and is most efficient when used with `:zero-copy`."
@@ -1063,6 +1042,103 @@ _unnamed [5 3]:
        (dt/clone (dsdata 0))
        (apply ds/concat dsdata)))))
 
+(defn- ->error
+  "Helper function to create an error from a potentially variadic number of err-ptrs."
+  [msg & err-ptrs]
+  (RuntimeException.
+    (str (when msg (str msg ":\n"))
+         (let [sub-msg (clojure.string/join
+                         " - "
+                         (for [err-ptr err-ptrs
+                               :when   (some? err-ptr)]
+                           (dt-ffi/c->string err-ptr)))]
+           (if (seq sub-msg)
+             sub-msg
+             "Unknown Error")))))
+
+(defn- -execute-statement!
+  "Execute the statement at `stmt-ix` using the provided `conn`, extracted `stmts` and
+  `stmt` pointer.
+
+  This function is mostly used to handle the ceremony around extracting and preparing statements and
+  the associated error handling.
+
+  If an error is encountered all resources created up to the point will be cleaned up.
+
+  There are also options to allow the sequence of steps to be skipped allowing callers to
+  effectively \"pause\" and \"resume\"
+
+  The steps are as follows:
+
+  1) Prepare a statement (can be skipped with `skip-prepare?`) by loading `stmt-ix` from `stmts`
+     into `stmt`. Can be skipped using `:skip-prepare?`
+
+  2) Execute the `stmt` by loading it into `pending-result` and finally realize the result into
+     `out-result`. Can be skipped using `:skip-execute?`
+
+  3) Destroy per-statement resources (`pending-result` and `extracted-statement`). Can be skipped
+     using `:skip-cleanup?`.
+
+  Takes options for"
+  [{:keys [conn stmts stmt-ix stmt streaming?
+           pending-result out-result
+           skip-prepare?
+           skip-execute?
+           skip-cleanup?]}]
+  (let [prepare-err     (when-not skip-prepare?
+                          (when-not (zero? (duckdb-ffi/duckdb_prepare_extracted_statement
+                                             conn stmts stmt-ix stmt))
+                            (->error
+                              "Error preparing statement"
+                              (duckdb-ffi/duckdb_prepare_error stmt))))
+        create-pending* (delay
+                          (if skip-execute?
+                            0
+                            (if streaming?
+                              (duckdb-ffi/duckdb_pending_prepared_streaming stmt pending-result)
+                              (duckdb-ffi/duckdb_pending_prepared stmt pending-result))))
+        pending-err     (when (and (nil? prepare-err)
+                                   (not (zero? @create-pending*)))
+                          (->error
+                            "Error executing prepared statement"
+                            (duckdb-ffi/duckdb_pending_error pending-result)))
+        realize-err     (when (and (nil? pending-err)
+                                   (not skip-execute?)
+                                   (not (zero? (duckdb-ffi/duckdb_execute_pending
+                                                 pending-result
+                                                 out-result))))
+                      (->error "Error realizing pending result"
+                               (duckdb-ffi/duckdb_pending_error pending-result)))
+        err             (or prepare-err pending-err realize-err)]
+    (when-not skip-cleanup?
+      (duckdb-ffi/duckdb_destroy_pending pending-result)
+      (duckdb-ffi/duckdb_destroy_prepare stmt))
+    (when err
+      (duckdb-ffi/duckdb_destroy_extracted stmts)
+      (when realize-err
+        (duckdb-ffi/duckdb_destroy_result out-result))
+      (throw err))))
+
+
+(defn- -new-struct
+  "Helper function to make a new struct on the native heap for use with Duckdb.
+
+  If provided a cleanup function we will automatically attach it to the resource and call it with
+  the pointer
+
+  If provided pinned resources we will block their release until after GC has run
+  for the provided `struct`."
+  [struct-kw & {:keys [cleanup-fn
+                       pinned-resources]}]
+   (let [struct (dt-struct/new-struct struct-kw {:container-type :native-heap :resource-type :auto})
+         ;; Use `struct-ptr` to avoid keeping a reference to `struct` in the dispose-fn closure below.
+         struct-ptr (dt-ffi/->pointer struct)]
+     (when cleanup-fn
+       (resource/track struct
+                       {:track-type :auto
+                        :dispose-fn #(do (count pinned-resources)
+                                         (cleanup-fn struct-ptr))})
+       struct)))
 
 
 (defn prepare
@@ -1123,82 +1199,64 @@ _unnamed [5 3]:
 ```"
   (^AutoCloseable [conn sql] (prepare conn sql nil))
   (^AutoCloseable [conn sql options]
-   (let [stmt-ptr (dt-ffi/make-ptr :pointer 0)
-         destroy-prep* (delay (duckdb-ffi/duckdb_destroy_prepare stmt-ptr))
-         tval (duckdb-ffi/duckdb_prepare conn sql stmt-ptr)
-         stmt (Pointer. (long (stmt-ptr 0)))
-         _   (when-not (== 0 tval)
-               (let [errptr (duckdb-ffi/duckdb_prepare_error stmt)
-                     errors (if errptr
-                              (dt-ffi/c->string errptr)
-                              "Unknown Error")]
-                 @destroy-prep*
-                 (throw (RuntimeException. (str "Error creating prepared statement:\n" errors)))))
+   (let [stmts (-new-struct :duckdb-extracted-statements
+                            {:cleanup-fn duckdb-ffi/duckdb_destroy_extracted})
+         stmt (-new-struct :duckdb-prepared-statement
+                           {:cleanup-fn duckdb-ffi/duckdb_destroy_prepare
+                            :pinned-resources [stmts]})
+         pending (-new-struct :duckdb-pending-result
+                              {:cleanup-fn duckdb-ffi/duckdb_destroy_pending
+                               :pinned-resources [stmt]})
+         result (-new-struct :duckdb-result
+                             {:cleanup-fn duckdb-ffi/duckdb_destroy_result})
+         n-stmts (let [result (duckdb-ffi/duckdb_extract_statements conn sql stmts)]
+                   (if (pos? result)
+                     result
+                     (throw (->error "Error extracting statements"
+                                     (duckdb-ffi/duckdb_extract_statements_error stmts)))))
+         n-params (loop [ix 0]
+                    (let [last-stmt? (= ix (dec n-stmts))]
+                      (-execute-statement! {:conn           conn
+                                            :stmts          stmts
+                                            :stmt           stmt
+                                            :stmt-ix        ix
+                                            :pending-result pending
+                                            :out-result     result
+                                            :skip-cleanup?  last-stmt?
+                                            :skip-execute?  last-stmt?})
+                      (when-not last-stmt?
+                        (duckdb-ffi/duckdb_destroy_result result))
+                      (if last-stmt?
+                        (duckdb-ffi/duckdb_nparams stmt)
+                        (recur (inc ix)))))
          result-type (get options :result-type :streaming)
-         stmt-ptr (dt-ffi/->pointer stmt)
-         _ (resource/track stmt {:track-type :auto
-                                 :dispose-fn #(deref destroy-prep*)})
+         options     (if (identical? result-type :single)
+                       (assoc options :reduce-type :zero-copy)
+                       options)
          finalize-stmt (fn []
-                         (let [pending-ptr (dt-ffi/make-ptr :pointer 0)
-                               success (if (identical? result-type :streaming)
-                                         (duckdb-ffi/duckdb_pending_prepared_streaming stmt pending-ptr)
-                                         (duckdb-ffi/duckdb_pending_prepared stmt pending-ptr))
-                               pending (Pointer. (pending-ptr 0))
-                               _ (when-not (= 0 success)
-                                   (let [stmterr (duckdb-ffi/duckdb_prepare_error stmt)
-                                         pnderr (duckdb-ffi/duckdb_pending_error pending)
-                                         errorstr (cond
-                                                    (and stmterr pnderr)
-                                                    (str (dt-ffi/c->string stmterr) " - "
-                                                         (dt-ffi/c->string pnderr))
-                                                    stmterr (dt-ffi/c->string stmterr)
-                                                    pnderr (dt-ffi/c->string pnderr)
-                                                    :else
-                                                    "Unknown Error")]
-                                     (duckdb-ffi/duckdb_destroy_pending pending-ptr)
-                                     (throw (RuntimeException. (str "Error executing prepared statement: "
-                                                                    errorstr)))))
-                               result (dt-struct/new-struct :duckdb-result {:container-type :native-heap
-                                                                            :resource-type :auto})
-                               success (duckdb-ffi/duckdb_execute_pending pending result)
-                               _ (when-not (= 0 success)
-                                   (let  [pnderr (duckdb-ffi/duckdb_pending_error pending)
-                                          errstr (if pnderr
-                                                   (dt-ffi/c->string pnderr)
-                                                   "Unknown Error")]
-                                     (duckdb-ffi/duckdb_destroy_pending pending-ptr)
-                                     (duckdb-ffi/duckdb_destroy_result result)
-                                     (throw (RuntimeException. (str "Failed to realize pending result: " errstr)))))
-                               _ (duckdb-ffi/duckdb_destroy_pending pending-ptr)
-                               res-ptr (dt-ffi/->pointer result)
-                               destroy-result* (delay (duckdb-ffi/duckdb_destroy_result res-ptr))
-                               _ (resource/track result {:track-type :auto
-                                                         :dispose-fn #(deref destroy-result*)})
-                               options (if (identical? result-type :single)
-                                         (assoc options :reduce-type :zero-copy)
-                                         options)
-                               res-data (results->datasets sql result destroy-result* options)]
+                         (-execute-statement!
+                           {:conn           conn
+                            :stmts          stmts
+                            :stmt           stmt
+                            :stmt-ix        (dec n-stmts)
+                            :pending-result pending
+                            :out-result     result
+                            :streaming?     (identical? result-type :streaming)
+                            :skip-prepare?  true})
+                         (let [res-data (results->datasets sql result options)]
                            (case result-type
                              :streaming res-data
-                             :realized res-data
-                             :single (with-open [res-data res-data]
-                                       (datasets->dataset res-data)))))
-         n-params (long (duckdb-ffi/duckdb_nparams stmt))
-         ;;Prepared statements have 1-based indexing (!!)
-         param-types (mapv #(duckdb-ffi/duckdb_param_type stmt (+ 1 (long %))) (range n-params))]
-     (case n-params
-       0 (PrepStatement0. sql destroy-prep* finalize-stmt)
-       1 (PrepStatement1. sql stmt param-types destroy-prep* finalize-stmt)
-       2 (PrepStatement2. sql stmt param-types destroy-prep* finalize-stmt)
-       3 (PrepStatement3. sql stmt param-types destroy-prep* finalize-stmt)
-       (PrepStatementN. sql stmt param-types destroy-prep* finalize-stmt)))))
+                             :realized  res-data
+                             :single    (with-open [res-data res-data]
+                                       (datasets->dataset res-data)))))]
+     (PrepStatement. sql stmt n-params finalize-stmt))))
 
 
 (comment
   (do
     (def stocks
       (-> (ds/->dataset "https://github.com/techascent/tech.ml.dataset/raw/master/test/data/stocks.csv"
-                        {:key-fn keyword
+                        {:key-fn       keyword
                          :dataset-name :stocks})))
 
     (initialize!)
