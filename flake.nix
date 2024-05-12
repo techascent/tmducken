@@ -25,7 +25,7 @@
         # Definining a reusable DLL providing script, used for Nix repeatable build AND direnv shell entering (development)
         postPatch = ''
           mkdir -p ${lib-folder}
-          ln -sf ${pkgs.duckdb}/lib/* ${lib-folder}
+          ln -sf ${pkgs.duckdb.lib}/lib/* ${lib-folder}
         '';
       in {
 
