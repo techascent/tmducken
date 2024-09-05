@@ -223,3 +223,14 @@
               {"country" "US", "name" "Seattle", "2010" 608}]
              (ds/rows result-ds))))))
 
+(deftest show-all-tables-test
+  (try
+    (duckdb/drop-table! @conn* "foo")
+    (catch Throwable e nil))
+  (let [ds (-> (ds/->dataset [{:a 1}])
+               (ds/set-dataset-name "foo"))]
+    (duckdb/create-table! @conn* ds)
+    (duckdb/insert-dataset! @conn* ds)
+    ;; TODO: HH 2024-09-05 - come up with a nice assertion here once we know
+    ;;                       what the results of this are supposed to look like
+    (duckdb/sql->dataset @conn* "show all tables;")))
