@@ -223,3 +223,17 @@
               {"country" "US", "name" "Seattle", "2010" 608}]
              (ds/rows result-ds))))))
 
+(deftest uuid-test
+  (let [id (random-uuid)
+        data (ds/->dataset [{:id id}] {:dataset-name "uuid_test"})]
+    (try
+      (duckdb/drop-table! @conn* "uuid_test")
+      (catch Throwable _ nil))
+    (duckdb/create-table! @conn* data)
+    (duckdb/insert-dataset! @conn* data)
+    (let [result-ds (duckdb/sql->dataset
+                      @conn*
+                      (format "SELECT id from uuid_test where id = '%s'" id))]
+      (is (some? result-ds))
+      (is (= 1 (count (ds/rows result-ds))))
+      (is (= [{"id" id}] (ds/rows result-ds))))))

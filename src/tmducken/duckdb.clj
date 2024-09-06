@@ -319,6 +319,10 @@ tmducken.duckdb> (get-config-options)
   (.address (dt-ffi/->pointer ptr)))
 
 
+(defn toggle-long-msb
+  [x]
+  (bit-xor x Long/MIN_VALUE))
+
 (defn insert-dataset!
   "Append this dataset using the higher performance append api of duckdb.  This is recommended
   as opposed to using sql statements or prepared statements.  That being said the schema of this
@@ -437,7 +441,7 @@ tmducken.duckdb> (get-config-options)
                                           (if uuid
                                             (do
                                               (.putLong us laddr (.getLeastSignificantBits uuid))
-                                              (.putLong us (+ laddr 8) (.getMostSignificantBits uuid)))
+                                              (.putLong us (+ laddr 8) (toggle-long-msb (.getMostSignificantBits uuid))))
                                             (do
                                               (.putLong us laddr 0)
                                               (.putLong us (+ laddr 8) 0))))))))))
@@ -553,6 +557,7 @@ tmducken.duckdb> (get-config-options)
 
 (deftype ^:private UUIDReader [])
 
+
 (defn- coldata->buffer
   [^RoaringBitmap missing ^long n-rows ^long duckdb-type ^long data-ptr]
   (case (get duckdb-ffi/duckdb-type-map duckdb-type)
@@ -618,8 +623,15 @@ tmducken.duckdb> (get-config-options)
        (reify IFnDef$LO
          (invokePrim [this idx]
            (let [laddr (+ data-ptr (* idx 16))]
-             (UUID. (.getLong us (+ laddr 8))
-                    (.getLong us laddr))))))
+             ;; typedef struct {
+             ;;     uint64_t lower;
+             ;;     int64_t upper;
+             ;; } duckdb_hugeint;
+             ;; For some reason the msb when r/w with duckdb api nee to be inverted.
+             (let [msbytes (.getLong us (+ laddr 8))
+                   msbytes (toggle-long-msb msbytes)
+                   lsbytes (.getLong us laddr)]
+               (UUID. msbytes lsbytes))))))
      0 n-rows)
 
     :DUCKDB_TYPE_VARCHAR
