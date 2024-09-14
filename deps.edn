@@ -1,5 +1,5 @@
 {:paths ["src" "lib"]
- :deps {techascent/tech.ml.dataset {:mvn/version "7.026"}
+ :deps {techascent/tech.ml.dataset {:mvn/version "7.032"}
         techascent/tech.ml.dataset.sql {:mvn/version "7.000-beta-52"}
         net.java.dev.jna/jna {:mvn/version "5.13.0"}}
  :aliases
