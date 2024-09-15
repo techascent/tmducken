@@ -71,7 +71,7 @@ _unnamed [5 3]:
            [java.time LocalDate LocalTime Instant]
            [tech.v3.datatype.ffi Pointer]
            [tech.v3.datatype UnsafeUtil]
-           [ham_fisted ITypedReduce IFnDef$LO Casts IFnDef]
+           [ham_fisted ITypedReduce IFnDef$LO Casts IFnDef ArrayLists]
            [tech.v3.datatype ObjectReader]
            [org.roaringbitmap RoaringBitmap]
            [clojure.lang Seqable IReduceInit Counted IDeref]
@@ -559,8 +559,10 @@ tmducken.duckdb> (get-config-options)
 
 
 (defn- coldata->buffer
-  [^RoaringBitmap missing ^long n-rows logical-type ^long data-ptr]
-  (let [type-id (duckdb-ffi/duckdb_get_type_id logical-type)]
+  [^RoaringBitmap missing n-rows logical-type ddb-vec]
+  (let [type-id (duckdb-ffi/duckdb_get_type_id logical-type)
+        n-rows (long n-rows)
+        data-ptr (.address ^Pointer (duckdb-ffi/duckdb_vector_get_data ddb-vec))]
     (case (get duckdb-ffi/duckdb-type-map type-id)
       :DUCKDB_TYPE_BOOLEAN
       (-> (native-buffer/wrap-address data-ptr n-rows nil)
@@ -667,6 +669,40 @@ tmducken.duckdb> (get-config-options)
                    (let [ptr-off (+ len-off 8)
                          ptr-addr (native-buffer/read-long nbuf ptr-off)]
                      (native-buffer/native-buffer->string (native-buffer/wrap-address ptr-addr slen nil))))))))
+         0 n-rows))
+
+      :DUCKDB_TYPE_LIST
+      (let [child-vec (duckdb-ffi/duckdb_list_vector_get_child ddb-vec)
+            child-vec-n-elems (duckdb-ffi/duckdb_list_vector_get_size ddb-vec)
+            child-logical-type (duckdb-ffi/duckdb_list_type_child_type logical-type)
+            childbuf (-> (coldata->buffer (RoaringBitmap.) child-vec-n-elems child-logical-type child-vec)
+                         (dt/->buffer))
+            ;;Two longs per entry - offset, length
+            lbuf (-> (native-buffer/wrap-address data-ptr (* 2 8 n-rows) nil)
+                     (native-buffer/set-native-datatype :int64)
+                     (dt/->buffer))]
+        ;;destroy logical type takes a pointer to pointer
+        (-> (dt-ffi/make-ptr :pointer (.address ^Pointer child-logical-type))
+            (duckdb-ffi/duckdb_destroy_logical_type))
+        (GenericObjReader.
+         :object Object
+         (reify IFnDef$LO
+           (invokePrim [this idx]
+             (let [soff (* 2 idx)
+                   offset (.readLong lbuf soff)
+                   length (.readLong lbuf (+ 1 soff))]
+               (case length
+                 0 []
+                 1 [(.readObject childbuf offset)]
+                 2 [(.readObject childbuf offset)
+                    (.readObject childbuf (+ offset 1))]
+                 3 [(.readObject childbuf offset)
+                    (.readObject childbuf (+ offset 1))
+                    (.readObject childbuf (+ offset 2))]
+                 (let [objv (object-array length)]
+                   (dotimes [local-off length]
+                     (aset objv local-off (.readObject childbuf (+ offset local-off))))
+                   (ArrayLists/toList objv))))))
          0 n-rows))
       (throw (RuntimeException. (format "Failed to get a valid column type for duckdb-type-id %d" type-id))))))
 
@@ -823,7 +859,6 @@ tmducken.duckdb> (get-config-options)
                               (->> (hamf/range n-cols)
                                    (hamf/mapv (fn [cidx]
                                                 (let [vdata (duckdb-ffi/duckdb_data_chunk_get_vector data-chunk cidx)
-                                                      ^Pointer data-ptr (duckdb-ffi/duckdb_vector_get_data vdata)
                                                       missing (validity->missing
                                                                n-rows
                                                                (duckdb-ffi/duckdb_vector_get_validity vdata))
@@ -831,7 +866,7 @@ tmducken.duckdb> (get-config-options)
                                                                 (coldata->buffer missing
                                                                                  n-rows
                                                                                  (logical-types cidx)
-                                                                                 (.-address data-ptr))
+                                                                                 vdata)
                                                                 (catch Exception e
                                                                   (throw (RuntimeException.
                                                                           (str "Error processing column " (names cidx)) e))))

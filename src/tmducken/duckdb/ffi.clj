@@ -293,6 +293,12 @@ all memory associated with the appender.
     :duckdb_vector_ensure_validity_writable {:rettype :void
                                              :argtypes [[vector :pointer]]}
 
+    ;;DUCKDB_API duckdb_vector duckdb_list_vector_get_child(duckdb_vector vector);
+    :duckdb_list_vector_get_child {:rettype :pointer
+                                   :argtypes [[vector :pointer]]}
+    ;;DUCKDB_API idx_t duckdb_list_vector_get_size(duckdb_vector vector);
+    :duckdb_list_vector_get_size {:rettype :int64
+                                  :argtypes [[vector :pointer]]}
 
     ;;DUCKDB_API duckdb_logical_type duckdb_create_logical_type(duckdb_type type);
     :duckdb_create_logical_type {:rettype :pointer
@@ -305,6 +311,10 @@ all memory associated with the appender.
     ;;DUCKDB_API duckdb_type duckdb_get_type_id(duckdb_logical_type type);
     :duckdb_get_type_id {:rettype :int32
                          :argtypes [[type :pointer]]}
+
+    ;;DUCKDB_API duckdb_logical_type duckdb_list_type_child_type(duckdb_logical_type type);
+    :duckdb_list_type_child_type {:rettype :pointer
+                                  :argtypes [[type :pointer]]}
 
     ;;DUCKDB_API void duckdb_data_chunk_reset(duckdb_data_chunk chunk);
     :duckdb_data_chunk_reset {:rettype :void
