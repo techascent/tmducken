@@ -329,9 +329,14 @@ tmducken.duckdb> (get-config-options)
   dataset must match *precisely* the schema of the target table."
   ([conn dataset options]
    (resource/stack-resource-context
-    (let [table-name (sql/table-name dataset options)
+    (let [table-name (str (sql/table-name dataset options))
           app-ptr-ptr (dt-ffi/make-ptr :pointer 0)
-          app-status (duckdb-ffi/duckdb_appender_create conn "" table-name app-ptr-ptr)
+          dotindex (.indexOf table-name (int \.))
+          [schema table] (if (== -1 dotindex)
+                           ["" table-name]
+                           [(.substring table-name 0 dotindex)
+                            (.substring table-name (inc dotindex))])
+          app-status (duckdb-ffi/duckdb_appender_create conn schema table app-ptr-ptr)
           appender (Pointer. (app-ptr-ptr 0))
           ;;this is fine because we are hardcoding to track via stack.
           ;;Normally dispose-fn cannot reference things being tracked

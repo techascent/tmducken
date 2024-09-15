@@ -251,3 +251,12 @@
                      "local_dates"
                      "local_times"}
                    (set (first (alltables "column_names")))))])))
+
+
+(deftest schema-support
+  (let [ds (-> (ds/->dataset [{:a 1}])
+               (ds/set-dataset-name :foo.table))]
+    (duckdb/run-query! @conn* "CREATE SCHEMA foo")
+    (duckdb/create-table! @conn* ds)
+    (duckdb/insert-dataset! @conn* ds)
+    (is (= [1] ((duckdb/sql->dataset @conn* "select * from foo.table") "a")))))
