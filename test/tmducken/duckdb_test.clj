@@ -260,3 +260,17 @@
     (duckdb/create-table! @conn* ds)
     (duckdb/insert-dataset! @conn* ds)
     (is (= [1] ((duckdb/sql->dataset @conn* "select * from foo.table") "a")))))
+
+(deftest timestamp-tz-test
+  (let [result (duckdb/sql->dataset
+                @conn*
+                "SELECT
+                   1 as id,
+                   TIMESTAMP '2024-01-15 10:30:00' as ts_regular,
+                   TIMESTAMPTZ '2024-01-15 10:30:00+00' as ts_with_tz"
+                {:key-fn keyword})]
+    (is (= 1 (ds/row-count result)))
+    (is (= :packed-instant (dt/elemwise-datatype (result :ts_regular))))
+    (is (= :packed-instant (dt/elemwise-datatype (result :ts_with_tz))))
+    (is (= (vec (result :ts_regular))
+           (vec (result :ts_with_tz))))))
