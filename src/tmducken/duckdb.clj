@@ -97,9 +97,11 @@ _unnamed [5 3]:
 
 (defn- check-lib-version!
   []
-  (let [lib-version (duckdb-library-version)]
-    (when (= lib-version "v0.10.0")
-      (throw (RuntimeException. (str "Invalid version: " lib-version " - " "this version of tmducken is meant for duckdb version 0.10.1 and up but should also work with 0.9.2"))))
+  (let [lib-version (duckdb-library-version)
+        major (some-> (re-matches #"v?(\d+)\..*" lib-version) (second) (Long/parseLong))]
+    (when (and major (< major 1))
+      (throw (RuntimeException. (str "Invalid version: " lib-version " - "
+                                     "this version of tmducken requires duckdb 1.0 or higher"))))
     :ok))
 
 
@@ -154,23 +156,17 @@ _unnamed [5 3]:
 
 (defn open-db
   "Open a database.  `path` may be nil in which case database is opened in-memory.
-  For valid config options call [[get-config-options]].  Options must be
-  passed as a map of string->string.  As duckdb is dynamically linked configuration options
-  may change but with `linux-amd64-0.3.1` current options are:
+  Options must be passed as a map of string->string.  Because duckdb is dynamically linked
+  the set of valid options depends on the library you load - call [[get-config-options]]
+  for the authoritative list.  With `linux-amd64-1.5.5` there are 299 of them:
 
 ```clojure
-tmducken.duckdb> (get-config-options)
+tmducken.duckdb> (count (get-config-options))
+299
+tmducken.duckdb> (->> (get-config-options)
+                      (filter (comp #{\"access_mode\" \"max_memory\" \"threads\"} :name)))
 [{:name \"access_mode\",
-  :desc \"Access mode of the database ([AUTOMATIC], READ_ONLY or READ_WRITE)\"}
- {:name \"default_order\",
-  :desc \"The order type used when none is specified ([ASC] or DESC)\"}
- {:name \"default_null_order\",
-  :desc \"Null ordering used when none is specified ([NULLS_FIRST] or NULLS_LAST)\"}
- {:name \"enable_external_access\",
-  :desc
-  \"Allow the database to access external state (through e.g. COPY TO/FROM, CSV readers, pandas replacement scans, etc)\"}
- {:name \"enable_object_cache\",
-  :desc \"Whether or not object cache is used to cache e.g. Parquet metadata\"}
+  :desc \"Access mode of the database (AUTOMATIC, READ_ONLY or READ_WRITE)\"}
  {:name \"max_memory\", :desc \"The maximum memory of the system (e.g. 1GB)\"}
  {:name \"threads\", :desc \"The number of total threads used by the system\"}]
 ```"
@@ -195,7 +191,7 @@ tmducken.duckdb> (get-config-options)
         (let [err-ptr (Pointer. (err 0))
               err-str (dt-ffi/c->string err-ptr)]
           (duckdb-ffi/duckdb_free err-ptr)
-          (throw (Exception. (format "Error opening database: %s" err-str)))))
+          (throw (RuntimeException. (format "Error opening database: %s" err-str)))))
       (Pointer. (db-ptr 0)))))
   (^Pointer [^String path]
    (open-db path nil))
@@ -243,9 +239,11 @@ tmducken.duckdb> (get-config-options)
          destroy-results* (delay (duckdb-ffi/duckdb_destroy_result query-ptr)
                                  (native-buffer/free (.address query-ptr)))]
      (when-not success?
-       (let [error-msg (dt-ffi/c->string (Pointer. (query-res :error-message)))]
+       (let [error-msg (if-let [err (duckdb-ffi/duckdb_result_error query-ptr)]
+                         (dt-ffi/c->string err)
+                         "Unknown Error")]
          @destroy-results*
-         (throw (Exception. error-msg))))
+         (throw (RuntimeException. error-msg))))
      (deref destroy-results*)
      :ok))
   ([conn sql]
@@ -345,8 +343,14 @@ tmducken.duckdb> (get-config-options)
                                                        (duckdb-ffi/duckdb_appender_destroy app-ptr-ptr))})
           check-error (fn [status]
                         (when-not (= status duckdb-ffi/DuckDBSuccess)
-                          (let [err (duckdb-ffi/duckdb_appender_error appender)]
-                            (throw (Exception. (dt-ffi/c->string err))))))
+                          (let [errdata (duckdb-ffi/duckdb_appender_error_data appender)
+                                msg (if errdata
+                                      (dt-ffi/c->string (duckdb-ffi/duckdb_error_data_message errdata))
+                                      "Unknown Error")]
+                            (when errdata
+                              (-> (dt-ffi/make-ptr :pointer (.address ^Pointer errdata))
+                                  (duckdb-ffi/duckdb_destroy_error_data)))
+                            (throw (RuntimeException. msg)))))
           _ (check-error app-status)
           n-rows (ds/row-count dataset)
           n-cols (ds/column-count dataset)
@@ -814,7 +818,7 @@ tmducken.duckdb> (get-config-options)
   java.lang.AutoCloseable
   (close [this] @destroy-result*)
   Supplier
-  (get [this] (let [chunk (duckdb-ffi/duckdb_stream_fetch_chunk result)]
+  (get [this] (let [chunk (duckdb-ffi/duckdb_fetch_chunk result)]
                 (when (and chunk (not (== 0 (.address ^Pointer chunk))))
                   (let [ds (realize-chunk chunk true)]
                     (destroy-chunk chunk)
@@ -822,7 +826,7 @@ tmducken.duckdb> (get-config-options)
   ITypedReduce
   (reduce [this rfn acc]
     (loop [acc acc]
-      (let [chunk (duckdb-ffi/duckdb_stream_fetch_chunk result)]
+      (let [chunk (duckdb-ffi/duckdb_fetch_chunk result)]
         (if (and chunk
                  (not (== 0 (.address ^Pointer chunk)))
                  (not (reduced? acc)))
@@ -842,7 +846,10 @@ tmducken.duckdb> (get-config-options)
 
 
 (defn- results->datasets
-  ^AutoCloseable [sql duckdb-result options]
+  "Wrap `duckdb-result` in a chunk supplier.  `streaming?` must match how the result was
+  produced - see `-execute-statement!` - as duckdb offers no non-deprecated way to ask a
+  result whether it is streaming."
+  ^AutoCloseable [sql duckdb-result streaming? options]
   (let [metadata {:duckdb-result duckdb-result}
         n-cols (long (duckdb-ffi/duckdb_column_count duckdb-result))
         names (hamf/mapv #(dt-ffi/c->string (duckdb-ffi/duckdb_column_name duckdb-result %)) (hamf/range n-cols))
@@ -891,7 +898,7 @@ tmducken.duckdb> (get-config-options)
                                      :name :_unnamed}
                                     0 0)))
         reduce-type (get options :reduce-type :clone)]
-    (if (== 0 (long (duckdb-ffi/duckdb_result_is_streaming duckdb-result)))
+    (if-not streaming?
       (RealizedResultChunks. sql
                              (duckdb-ffi/duckdb_result_chunk_count duckdb-result)
                              0
@@ -1280,6 +1287,7 @@ _unnamed [5 3]:
                         (duckdb-ffi/duckdb_nparams stmt)
                         (recur (inc ix)))))
          result-type (get options :result-type :streaming)
+         streaming?  (identical? result-type :streaming)
          options     (if (identical? result-type :single)
                        (assoc options :reduce-type :zero-copy)
                        options)
@@ -1291,9 +1299,9 @@ _unnamed [5 3]:
                             :stmt-ix        (dec n-stmts)
                             :pending-result pending
                             :out-result     result
-                            :streaming?     (identical? result-type :streaming)
+                            :streaming?     streaming?
                             :skip-prepare?  true})
-                         (let [res-data (results->datasets sql result options)]
+                         (let [res-data (results->datasets sql result streaming? options)]
                            (case result-type
                              :streaming res-data
                              :realized  res-data

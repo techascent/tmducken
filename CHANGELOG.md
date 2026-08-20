@@ -1,3 +1,19 @@
+## 1.5.5-01
+ * Support for the 1.X series of duckdb - tested against 1.5.5.  **duckdb 0.X is no longer supported.**
+ * Migrated off the deprecated `duckdb_stream_fetch_chunk` (-> `duckdb_fetch_chunk`),
+   `duckdb_appender_error` (-> `duckdb_appender_error_data`) and the deprecated
+   `error_message` field of `duckdb_result` (-> `duckdb_result_error`).
+ * `duckdb_result_is_streaming` is no longer consulted - the requested `:result-type`
+   already determines how the result was executed, so it is threaded through directly.
+ * Dropped the unused `duckdb_row_count` binding.
+ * `open-db`, `run-query!` and `insert-dataset!` now throw `RuntimeException` rather than
+   `Exception`, matching the rest of the namespace.  Existing `(catch Exception ...)` handlers
+   are unaffected.
+ * Added the type constants introduced since 0.10 - `ARRAY`, `ANY`, `BIGNUM`, `SQLNULL`,
+   `STRING_LITERAL`, `INTEGER_LITERAL`, `TIME_NS`, `GEOMETRY` and `VARIANT`.  Reading columns
+   of these types is not implemented yet, but they now report a named type rather than a
+   bare id.
+
 ## 0.10.1-01
  * Support for 0.10.X series of duckdb - 0.10.0 was a bad release however - do not use!!
  * Support for list datatype
