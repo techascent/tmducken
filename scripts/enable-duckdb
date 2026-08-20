@@ -1,9 +1,12 @@
 #!/bin/bash
 
 ARCHNAME="linux-amd64"
-if [ "$(uname)" == "Darwin" ]; then
+if [ "$(uname -sm)" == "Linux aarch64" ]; then
+    ARCHNAME="linux-aarch64"
+elif [ "$(uname)" == "Darwin" ]; then
     ARCHNAME="osx-universal"
 fi
+
 echo $ARCHNAME
 
 if [ ! -e binaries ]; then
