@@ -9,39 +9,48 @@
 
 
 (def ^:private -DUCKDB-TYPES
-  '{DUCKDB_TYPE_INVALID      0
-    DUCKDB_TYPE_BOOLEAN      1
-    DUCKDB_TYPE_TINYINT      2
-    DUCKDB_TYPE_SMALLINT     3
-    DUCKDB_TYPE_INTEGER      4
-    DUCKDB_TYPE_BIGINT       5
-    DUCKDB_TYPE_UTINYINT     6
-    DUCKDB_TYPE_USMALLINT    7
-    DUCKDB_TYPE_UINTEGER     8
-    DUCKDB_TYPE_UBIGINT      9
-    DUCKDB_TYPE_FLOAT        10
-    DUCKDB_TYPE_DOUBLE       11
-    DUCKDB_TYPE_TIMESTAMP    12
-    DUCKDB_TYPE_DATE         13
-    DUCKDB_TYPE_TIME         14
-    DUCKDB_TYPE_INTERVAL     15
-    DUCKDB_TYPE_HUGEINT      16
-    DUCKDB_TYPE_UHUGEINT     32
-    DUCKDB_TYPE_VARCHAR      17
-    DUCKDB_TYPE_BLOB         18
-    DUCKDB_TYPE_DECIMAL      19
-    DUCKDB_TYPE_TIMESTAMP_S  20
-    DUCKDB_TYPE_TIMESTAMP_MS 21
-    DUCKDB_TYPE_TIMESTAMP_NS 22
-    DUCKDB_TYPE_ENUM         23
-    DUCKDB_TYPE_LIST         24
-    DUCKDB_TYPE_STRUCT       25
-    DUCKDB_TYPE_MAP          26
-    DUCKDB_TYPE_UUID         27
-    DUCKDB_TYPE_UNION        28
-    DUCKDB_TYPE_BIT          29
-    DUCKDB_TYPE_TIME_TZ      30
-    DUCKDB_TYPE_TIMESTAMP_TZ 31})
+  '{DUCKDB_TYPE_INVALID         0
+    DUCKDB_TYPE_BOOLEAN         1
+    DUCKDB_TYPE_TINYINT         2
+    DUCKDB_TYPE_SMALLINT        3
+    DUCKDB_TYPE_INTEGER         4
+    DUCKDB_TYPE_BIGINT          5
+    DUCKDB_TYPE_UTINYINT        6
+    DUCKDB_TYPE_USMALLINT       7
+    DUCKDB_TYPE_UINTEGER        8
+    DUCKDB_TYPE_UBIGINT         9
+    DUCKDB_TYPE_FLOAT           10
+    DUCKDB_TYPE_DOUBLE          11
+    DUCKDB_TYPE_TIMESTAMP       12
+    DUCKDB_TYPE_DATE            13
+    DUCKDB_TYPE_TIME            14
+    DUCKDB_TYPE_INTERVAL        15
+    DUCKDB_TYPE_HUGEINT         16
+    DUCKDB_TYPE_UHUGEINT        32
+    DUCKDB_TYPE_VARCHAR         17
+    DUCKDB_TYPE_BLOB            18
+    DUCKDB_TYPE_DECIMAL         19
+    DUCKDB_TYPE_TIMESTAMP_S     20
+    DUCKDB_TYPE_TIMESTAMP_MS    21
+    DUCKDB_TYPE_TIMESTAMP_NS    22
+    DUCKDB_TYPE_ENUM            23
+    DUCKDB_TYPE_LIST            24
+    DUCKDB_TYPE_STRUCT          25
+    DUCKDB_TYPE_MAP             26
+    DUCKDB_TYPE_UUID            27
+    DUCKDB_TYPE_UNION           28
+    DUCKDB_TYPE_BIT             29
+    DUCKDB_TYPE_TIME_TZ         30
+    DUCKDB_TYPE_TIMESTAMP_TZ    31
+    DUCKDB_TYPE_ARRAY           33
+    DUCKDB_TYPE_ANY             34
+    DUCKDB_TYPE_BIGNUM          35
+    DUCKDB_TYPE_SQLNULL         36
+    DUCKDB_TYPE_STRING_LITERAL  37
+    DUCKDB_TYPE_INTEGER_LITERAL 38
+    DUCKDB_TYPE_TIME_NS         39
+    DUCKDB_TYPE_GEOMETRY        40
+    DUCKDB_TYPE_VARIANT         41})
 
 (defmacro define-long-enums
   []
@@ -186,15 +195,23 @@ This can fail if either the name is invalid, or if the value provided for the op
                                         [schema :string]
                                         [table :string]
                                         [out_appender :pointer]]}
-    :duckdb_appender_error {:rettype :pointer?
-                            :argtypes [[appender :pointer]]
-                            :doc "Returns the error message associated with the given appender.
-If the appender has no error message, this returns `nullptr` instead.
+    ;;DUCKDB_API duckdb_error_data duckdb_appender_error_data(duckdb_appender appender);
+    :duckdb_appender_error_data {:rettype :pointer?
+                                 :argtypes [[appender :pointer]]
+                                 :doc "Returns the error data associated with the given appender.
 
-The error message should not be freed. It will be de-allocated when `duckdb_appender_destroy` is called.
+The result must be destroyed with `duckdb_destroy_error_data`.
 
-* appender: The appender to get the error from.
-* returns: The error message, or `nullptr` if there is none."}
+* appender: The appender to get the error data from.
+* returns: The error data."}
+    ;;DUCKDB_API const char *duckdb_error_data_message(duckdb_error_data error_data);
+    :duckdb_error_data_message {:rettype :pointer?
+                                :argtypes [[error-data :pointer]]
+                                :doc "Returns the error message of the error data.  Must not be freed - it is
+de-allocated along with the error data."}
+    ;;DUCKDB_API void duckdb_destroy_error_data(duckdb_error_data *error_data);
+    :duckdb_destroy_error_data {:rettype :void
+                                :argtypes [[error-data :pointer]]}
     :duckdb_appender_destroy {:rettype :int32
                               :argtypes [[appender :pointer]]
                               :doc "Close the appender and destroy it. Flushing all intermediate state in the appender to the table, and de-allocating
@@ -218,10 +235,13 @@ all memory associated with the appender.
                    :argtypes [[connection :pointer]
                               [query :string]
                               [out_result :pointer]]}
-    :duckdb_row_count {:rettype :int64
-                       :argtypes [[result :pointer]]}
     :duckdb_column_count {:rettype :int64
                           :argtypes [[result :pointer]]}
+    ;;DUCKDB_API const char *duckdb_result_error(duckdb_result *result);
+    :duckdb_result_error {:rettype :pointer?
+                          :argtypes [[result :pointer]]
+                          :doc "Returns the error message contained within the result, or nil if the result
+did not error.  Must not be freed - it is de-allocated by `duckdb_destroy_result`."}
     :duckdb_destroy_result {:rettype :void
                             :argtypes [[result :pointer]]}
 
@@ -234,10 +254,6 @@ all memory associated with the appender.
                          :argtypes [[result :pointer]
                                     [col :int64]]}
 
-    ;;DUCKDB_API bool duckdb_result_is_streaming(duckdb_result result);
-    :duckdb_result_is_streaming {:rettype :int8
-                                 :argtypes [[result (by-value :duckdb-result)]]}
-
     ;;DUCKDB_API duckdb_logical_type duckdb_column_logical_type(duckdb_result *result, idx_t col);
     :duckdb_column_logical_type {:rettype :pointer
                                  :argtypes [[result :pointer]
@@ -247,6 +263,8 @@ all memory associated with the appender.
     ;; Data Chunks - new API
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+    ;;Deprecated upstream with no replacement - duckdb_fetch_chunk cannot report a chunk
+    ;;count up front, so the :realized result-type needs these to stay countable.
     ;; DUCKDB_API idx_t duckdb_result_chunk_count(duckdb_result result);
     :duckdb_result_chunk_count {:rettype :int64
                                 :argtypes [[result (by-value :duckdb-result)]]}
@@ -466,6 +484,9 @@ all memory associated with the appender.
     :duckdb_pending_prepared {:rettype :int32
                               :argtypes [[prepared-statement (by-value :duckdb-prepared-statement)]
                                          [out-pending-result :pointer]]}
+    ;;Deprecated upstream with no replacement - duckdb_pending_prepared always produces a
+    ;;materialized result, so this is the only way to get a result that is not fully
+    ;;realized in memory before the first chunk is read.
     ;; ;; DUCKDB_API duckdb_state duckdb_pending_prepared_streaming(duckdb_prepared_statement prepared_statement,
     ;; ;;                                                                                     duckdb_pending_result *out_result);
     :duckdb_pending_prepared_streaming {:rettype :int32
@@ -483,9 +504,12 @@ all memory associated with the appender.
                              :argtypes [[pending-result (by-value :duckdb-pending-result)]
                                         [duckdb-result :pointer]]}
 
-    ;;DUCKDB_API duckdb_data_chunk duckdb_stream_fetch_chunk(duckdb_result result);
-    :duckdb_stream_fetch_chunk {:rettype :pointer?
-                                :argtypes [[result (by-value :duckdb-result)]]}}
+    ;;DUCKDB_API duckdb_data_chunk duckdb_fetch_chunk(duckdb_result result);
+    :duckdb_fetch_chunk {:rettype :pointer?
+                         :argtypes [[result (by-value :duckdb-result)]]
+                         :doc "Fetches a data chunk from a duckdb_result, returning nil once the result is
+exhausted.  Works for both streaming and materialized results.  Supersedes
+`duckdb_stream_fetch_chunk`."}}
   nil
   nil)
 
