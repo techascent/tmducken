@@ -509,7 +509,59 @@ did not error.  Must not be freed - it is de-allocated by `duckdb_destroy_result
                          :argtypes [[result (by-value :duckdb-result)]]
                          :doc "Fetches a data chunk from a duckdb_result, returning nil once the result is
 exhausted.  Works for both streaming and materialized results.  Supersedes
-`duckdb_stream_fetch_chunk`."}}
+`duckdb_stream_fetch_chunk`."}
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;; Table functions
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+    ;;DUCKDB_API duckdb_table_function duckdb_create_table_function();
+    :duckdb_create_table_function {:rettype :pointer}
+
+    ;;DUCKDB_API void duckdb_destroy_table_function(duckdb_table_function *table_function);
+    :duckdb_destroy_table_function {:rettype :void
+                                    :argtypes [[table-function :pointer]]} ;;ptr-to-table-function
+
+    ;;DUCKDB_API void duckdb_table_function_set_name(duckdb_table_function table_function, const char *name);
+    :duckdb_table_function_set_name {:rettype :void
+                                     :argtypes [[table-function :pointer]
+                                                [name :string]]}
+
+    ;;DUCKDB_API void duckdb_table_function_set_bind(duckdb_table_function table_function, duckdb_table_function_bind_t bind);
+    :duckdb_table_function_set_bind {:rettype :void
+                                     :argtypes [[table-function :pointer]
+                                                [bind :pointer]]}
+
+    ;;DUCKDB_API void duckdb_table_function_set_init(duckdb_table_function table_function, duckdb_table_function_init_t init);
+    :duckdb_table_function_set_init {:rettype :void
+                                     :argtypes [[table-function :pointer]
+                                                [init :pointer]]}
+
+    ;;DUCKDB_API void duckdb_table_function_set_function(duckdb_table_function table_function, duckdb_table_function_t function);
+    :duckdb_table_function_set_function {:rettype :void
+                                         :argtypes [[table-function :pointer]
+                                                    [function :pointer]]}
+
+    ;;DUCKDB_API duckdb_state duckdb_register_table_function(duckdb_connection con, duckdb_table_function function);
+    :duckdb_register_table_function {:rettype :int32
+                                     :argtypes [[connection :pointer]
+                                                [function :pointer]]}
+
+    ;;DUCKDB_API void duckdb_bind_add_result_column(duckdb_bind_info info, const char *name, duckdb_logical_type type);
+    :duckdb_bind_add_result_column {:rettype :void
+                                    :argtypes [[info :pointer]
+                                               [name :string]
+                                               [type :pointer]]}
+
+    ;;DUCKDB_API void duckdb_init_set_init_data(duckdb_init_info info, void *init_data, duckdb_delete_callback_t destroy);
+    :duckdb_init_set_init_data {:rettype :void
+                                :argtypes [[info :pointer]
+                                           [init-data :pointer]
+                                           [destroy :pointer]]}
+
+    ;;DUCKDB_API void *duckdb_function_get_init_data(duckdb_function_info info);
+    :duckdb_function_get_init_data {:rettype :pointer
+                                    :argtypes [[info :pointer]]}}
   nil
   nil)
 
