@@ -624,7 +624,7 @@ tmducken.duckdb> (->> (get-config-options)
       (-> (native-buffer/wrap-address data-ptr (* 8 n-rows) nil)
           (native-buffer/set-native-datatype :packed-local-time))
 
-      :DUCKDB_TYPE_TIMESTAMP
+      (:DUCKDB_TYPE_TIMESTAMP :DUCKDB_TYPE_TIMESTAMP_TZ)
       (-> (native-buffer/wrap-address data-ptr (* 8 n-rows) nil)
           (native-buffer/set-native-datatype :packed-instant))
 
